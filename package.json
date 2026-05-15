@@ -8,7 +8,7 @@
     "node": ">=22.0.0"
   },
   "bin": {
-    "clc": "./dist/index.js"
+    "clc": "./dist/index.cjs"
   },
   "scripts": {
     "build": "tsup",

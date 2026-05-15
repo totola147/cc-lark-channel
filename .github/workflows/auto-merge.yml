@@ -1,0 +1,38 @@
+name: Auto Merge
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  check_suite:
+    types: [completed]
+
+jobs:
+  auto-merge:
+    runs-on: self-hosted
+    if: github.event.pull_request.user.login == 'totola147' || github.event.sender.login == 'totola147'
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Wait for CI and merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Wait for all checks to pass
+          for i in $(seq 1 30); do
+            sleep 10
+            STATUS=$(gh pr checks "$PR_NUMBER" --repo ${{ github.repository }} 2>/dev/null | grep -c "fail" || echo "0")
+            PENDING=$(gh pr checks "$PR_NUMBER" --repo ${{ github.repository }} 2>/dev/null | grep -c "pending\|queued" || echo "0")
+            if [ "$STATUS" != "0" ]; then
+              echo "CI failed, skipping merge"
+              exit 0
+            fi
+            if [ "$PENDING" = "0" ]; then
+              echo "All checks passed, merging"
+              gh pr merge "$PR_NUMBER" --repo ${{ github.repository }} --squash --delete-branch
+              exit 0
+            fi
+            echo "Waiting for checks... ($i/30)"
+          done
+          echo "Timeout waiting for checks"
