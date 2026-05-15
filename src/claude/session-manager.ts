@@ -1,0 +1,119 @@
+import type { Logger } from "../util/logger.js";
+import type { LarkClient } from "../lark/client.js";
+import type { PermissionBroker } from "./permission-broker.js";
+import type { AppConfig } from "../config.js";
+import type { IncomingMessage } from "../types.js";
+import type { StateStore } from "../persistence/store.js";
+import { ClaudeSession } from "./session.js";
+
+export class SessionManager {
+  private readonly sessions = new Map<string, ClaudeSession>();
+
+  constructor(
+    private readonly config: AppConfig,
+    private readonly stateStore: StateStore,
+    private readonly broker: PermissionBroker,
+    private readonly logger: Logger,
+  ) {}
+
+  get larkClient(): LarkClient {
+    // Injected via index.ts wiring — accessed through config indirection
+    return (this as unknown as { _larkClient: LarkClient })._larkClient;
+  }
+
+  setLarkClient(client: LarkClient): void {
+    (this as unknown as { _larkClient: LarkClient })._larkClient = client;
+  }
+
+  getSession(chatId: string): ClaudeSession | undefined {
+    return this.sessions.get(chatId);
+  }
+
+  getOrCreateSession(chatId: string, larkClient: LarkClient): ClaudeSession {
+    let session = this.sessions.get(chatId);
+    if (!session) {
+      const saved = this.stateStore.getSession(chatId);
+      session = new ClaudeSession(
+        chatId,
+        this.config,
+        larkClient,
+        this.broker,
+        this.logger.child({ chatId }),
+        saved?.cwd ?? this.config.claude.default_cwd,
+        saved?.permissionMode ?? this.config.claude.permission_mode,
+        saved?.model ?? this.config.claude.default_model,
+      );
+      if (saved?.providerSessionId) {
+        session.providerSessionId = saved.providerSessionId;
+      }
+      this.sessions.set(chatId, session);
+    }
+    return session;
+  }
+
+  async handleMessage(msg: IncomingMessage): Promise<void> {
+    const larkClient = this.larkClient;
+    const session = this.getOrCreateSession(msg.chatId, larkClient);
+
+    // Handle ! prefix interrupt
+    if (msg.text.startsWith("!")) {
+      const newText = msg.text.slice(1).trim();
+      await session.interrupt(newText || undefined);
+      return;
+    }
+
+    const result = await session.submit(msg.text, undefined);
+
+    if (result.kind === "queued") {
+      await larkClient.sendText(msg.chatId, `📋 Queued (position ${result.position})`);
+    } else if (result.kind === "rejected") {
+      await larkClient.sendText(msg.chatId, "⚠️ Queue full, please wait");
+    }
+
+    // Persist session state
+    this.persistSession(msg.chatId, session);
+  }
+
+  newSession(chatId: string, larkClient: LarkClient): ClaudeSession {
+    const existing = this.sessions.get(chatId);
+    if (existing) {
+      existing.interrupt();
+    }
+    this.broker.resetSession();
+
+    const session = new ClaudeSession(
+      chatId,
+      this.config,
+      larkClient,
+      this.broker,
+      this.logger.child({ chatId }),
+      this.config.claude.default_cwd,
+      this.config.claude.permission_mode,
+      this.config.claude.default_model,
+    );
+    this.sessions.set(chatId, session);
+    this.stateStore.deleteSession(chatId);
+    return session;
+  }
+
+  private persistSession(chatId: string, session: ClaudeSession): void {
+    this.stateStore.setSession(chatId, {
+      providerSessionId: session.providerSessionId,
+      cwd: session.cwd,
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+      permissionMode: session.permissionMode,
+      model: session.model,
+    });
+    this.stateStore.save().catch((err) => {
+      this.logger.warn({ err }, "Failed to persist state");
+    });
+  }
+
+  async shutdown(): Promise<void> {
+    for (const [chatId, session] of this.sessions) {
+      await session.interrupt();
+      this.persistSession(chatId, session);
+    }
+  }
+}

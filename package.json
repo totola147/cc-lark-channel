@@ -1,0 +1,36 @@
+{
+  "name": "cc-lark-channel",
+  "version": "0.1.0",
+  "description": "Bridge Claude Code to Lark/Feishu — chat with your AI dev assistant from anywhere",
+  "homepage": "https://github.com/user/cc-lark-channel",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "bin": {
+    "clc": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.142",
+    "@larksuiteoapi/node-sdk": "1.64.0",
+    "pino": "^10.3.0",
+    "pino-pretty": "^13.0.0",
+    "smol-toml": "^1.6.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

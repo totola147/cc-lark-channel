@@ -1,0 +1,30 @@
+[lark]
+app_id = ""
+app_secret = ""
+
+[access]
+# List of allowed Lark open_ids. Empty = allow all (dev mode).
+# To discover your open_id, set unauthorized_behavior = "reject" and
+# send the bot a message — it will reply with your open_id.
+allowed_open_ids = []
+unauthorized_behavior = "ignore" # "ignore" | "reject"
+
+[claude]
+cli_path = "claude"              # path to claude binary in $PATH
+default_model = ""               # empty = use CLI default
+default_cwd = "/workspace"
+permission_mode = "default"      # "default" | "acceptEdits" | "bypassPermissions"
+permission_timeout_seconds = 120
+max_queue_size = 5
+
+[render]
+hide_thinking = false
+show_turn_stats = true
+inline_max_bytes = 1500          # max bytes for tool input preview in cards
+card_update_interval_ms = 500    # min interval between card updates
+
+[persistence]
+state_dir = "~/.cc-lark-channel"
+
+[logging]
+level = "info"                   # "trace" | "debug" | "info" | "warn" | "error"

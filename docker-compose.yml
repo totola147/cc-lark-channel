@@ -1,0 +1,15 @@
+services:
+  cc-lark-channel:
+    build: .
+    container_name: cc-lark-channel
+    restart: unless-stopped
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      - cc-lark-data:/root/.cc-lark-channel
+      - /workspace:/workspace
+    environment:
+      - CLC_CONFIG=/app/config.toml
+      - ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-}
+
+volumes:
+  cc-lark-data:
