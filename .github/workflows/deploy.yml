@@ -39,7 +39,7 @@ jobs:
             npm ci --production=false
 
             # Build
-            npx tsup
+            npm run build
 
             # Restart service
             pm2 restart cc-lark-channel || pm2 start dist/index.js --name cc-lark-channel
@@ -83,7 +83,7 @@ jobs:
               echo "Restoring previous commit: $PREV_COMMIT"
               git reset --hard "$PREV_COMMIT"
               npm ci --production=false
-              npx tsup
+              npm run build
               pm2 restart cc-lark-channel
               echo "Rollback complete"
             else
