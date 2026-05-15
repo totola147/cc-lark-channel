@@ -25,7 +25,7 @@ export class CommandRouter {
     const command = spaceIdx === -1 ? text : text.slice(0, spaceIdx);
     const args = spaceIdx === -1 ? "" : text.slice(spaceIdx + 1).trim();
 
-    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/cd", "/help"];
+    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/cd", "/bg", "/fg", "/kill", "/help"];
     if (!known.includes(command)) return null;
 
     return { command, args };
@@ -62,6 +62,7 @@ export class CommandRouter {
         }
         const stats = session.getStats();
         const status = [
+          `Session: ${session.name || session.id}`,
           `State: ${session.getState()}`,
           `CWD: ${session.cwd}`,
           `Model: ${session.model || "(default)"}`,
@@ -71,6 +72,61 @@ export class CommandRouter {
           `Queue: ${session.getQueueLength()}`,
         ].join("\n");
         await this.larkClient.sendText(chatId, status);
+        break;
+      }
+
+      case "/sessions": {
+        const list = this.sessionManager.getSessionList(chatId);
+        if (list.length === 0) {
+          await this.larkClient.sendText(chatId, "No sessions");
+          break;
+        }
+        const lines = list.map(s => {
+          const marker = s.isForeground ? "▶" : " ";
+          const name = s.name ? `${s.name} (${s.id})` : s.id;
+          return `${marker} ${name} — ${s.state}`;
+        });
+        await this.larkClient.sendText(chatId, lines.join("\n"));
+        break;
+      }
+
+      case "/bg": {
+        const result = this.sessionManager.backgroundSession(chatId, cmd.args || undefined);
+        if (!result) {
+          await this.larkClient.sendText(chatId, "No active session to background");
+          break;
+        }
+        const label = result.bgSession.name || result.bgSession.id;
+        await this.larkClient.sendText(chatId, `⏸ Session [${label}] moved to background\n🆕 New foreground session ready`);
+        break;
+      }
+
+      case "/fg": {
+        if (!cmd.args) {
+          await this.larkClient.sendText(chatId, "Usage: /fg <session-id or name>");
+          break;
+        }
+        const session = this.sessionManager.foregroundSession(chatId, cmd.args);
+        if (!session) {
+          await this.larkClient.sendText(chatId, `Session "${cmd.args}" not found`);
+          break;
+        }
+        const label = session.name || session.id;
+        await this.larkClient.sendText(chatId, `▶ Session [${label}] is now foreground`);
+        break;
+      }
+
+      case "/kill": {
+        if (!cmd.args) {
+          await this.larkClient.sendText(chatId, "Usage: /kill <session-id or name>");
+          break;
+        }
+        const killed = this.sessionManager.killSession(chatId, cmd.args);
+        if (killed) {
+          await this.larkClient.sendText(chatId, `🗑 Session "${cmd.args}" killed`);
+        } else {
+          await this.larkClient.sendText(chatId, `Cannot kill "${cmd.args}" (not found or is foreground)`);
+        }
         break;
       }
 
@@ -108,11 +164,6 @@ export class CommandRouter {
         await this.larkClient.sendText(chatId, `CWD → ${cmd.args}`);
         break;
       }
-
-      case "/sessions": {
-        await this.larkClient.sendText(chatId, "Session listing not yet implemented");
-        break;
-      }
     }
   }
 }
@@ -122,6 +173,10 @@ const HELP_TEXT = `cc-lark-channel commands:
 /new — Start new session
 /stop — Stop current generation
 /status — Show session info
+/sessions — List all sessions
+/bg [name] — Move current session to background
+/fg <id> — Bring session to foreground
+/kill <id> — Kill a background session
 /mode <mode> — Set permission mode
 /model <name> — Switch model
 /cd <path> — Change working directory

@@ -27,6 +27,10 @@ export class ClaudeSession {
   private totalOutputTokens = 0;
   providerSessionId?: string;
 
+  readonly id: string;
+  name?: string;
+  onTurnComplete?: () => void;
+
   constructor(
     private readonly chatId: string,
     private readonly config: AppConfig,
@@ -36,7 +40,9 @@ export class ClaudeSession {
     public cwd: string,
     public permissionMode: PermissionMode,
     public model: string,
-  ) {}
+  ) {
+    this.id = crypto.randomUUID().slice(0, 8);
+  }
 
   getState(): SessionState {
     return this.state;
@@ -135,6 +141,7 @@ export class ClaudeSession {
       this.currentHandle = null;
       this.state = "idle";
       await this.finalizeCard();
+      this.onTurnComplete?.();
       this.dequeueNext();
     }
   }
