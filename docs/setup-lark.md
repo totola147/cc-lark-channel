@@ -5,9 +5,10 @@
 1. [环境要求](#环境要求)
 2. [飞书应用配置](#飞书应用配置)
 3. [本地部署](#本地部署)
-4. [配置详解](#配置详解)
-5. [验证运行](#验证运行)
-6. [常见问题](#常见问题)
+4. [CI/CD 流水线](#cicd-流水线)
+5. [配置详解](#配置详解)
+6. [验证运行](#验证运行)
+7. [常见问题](#常见问题)
 
 ---
 
@@ -208,6 +209,100 @@ sudo systemctl start cc-lark-channel
 # 查看日志
 journalctl -u cc-lark-channel -f
 ```
+
+---
+
+## CI/CD 流水线
+
+项目使用 GitHub Actions 实现自动化 CI/CD，部署到本机通过 self-hosted runner（无需开放入站端口）。
+
+### 整体流程
+
+```
+Push → main:  CI (typecheck + test + build) → Deploy (pm2 restart + health check + rollback)
+创建 PR:      CI → Auto Merge (CI 通过后自动 squash merge)
+Tag v*:       CI → Deploy → Release (生成 changelog + GitHub Release)
+```
+
+### Workflow 文件
+
+| 文件 | 触发条件 | 作用 |
+|------|---------|------|
+| `.github/workflows/ci.yml` | PR / push main / tag | typecheck + test + build |
+| `.github/workflows/deploy.yml` | push main / tag | 部署到服务器 + 回滚 |
+| `.github/workflows/auto-merge.yml` | CI workflow 完成 | 自动合并 PR |
+
+### CI (`ci.yml`)
+
+在 GitHub 托管的 `ubuntu-latest` runner 上运行：
+
+```
+typecheck: npm run typecheck (tsc --noEmit)
+test:      npm test (vitest run)
+build:     npm run build (tsup)
+```
+
+三个 job 并行执行，全部通过才算 CI 成功。
+
+### Deploy (`deploy.yml`)
+
+在 self-hosted runner（本机）上运行：
+
+```
+1. checkout 代码
+2. npm ci + npm run build
+3. rsync 到 /opt/cc-lark-channel（保留 .env 和 config.toml）
+4. npm ci --omit=dev
+5. source .env + pm2 restart
+6. 健康检查（20s 内 pm2 状态变为 online）
+7. 失败 → 自动回滚到上一个 commit
+```
+
+**回滚机制：** 部署前记录当前 commit SHA，健康检查失败时 `git reset --hard` 到旧 commit 并重新构建启动。
+
+### Auto Merge (`auto-merge.yml`)
+
+触发条件：CI workflow 成功完成且关联的是一个 PR。
+
+行为：找到对应 PR → 确认是仓库 owner 提交的 → squash merge + 删除分支。
+
+### Self-hosted Runner
+
+Runner 安装在部署服务器本机，通过 outbound HTTPS 连接 GitHub（无需开放入站端口）。
+
+- 名称：`cc-lark-runner`
+- 安装路径：`/opt/actions-runner`
+- 服务：`actions.runner.totola147-cc-lark-channel.cc-lark-runner.service`
+
+常用命令：
+
+```bash
+# 查看 runner 状态
+sudo systemctl status actions.runner.totola147-cc-lark-channel.cc-lark-runner
+
+# 重启 runner
+sudo systemctl restart actions.runner.totola147-cc-lark-channel.cc-lark-runner
+
+# 查看 runner 日志
+journalctl -u actions.runner.totola147-cc-lark-channel.cc-lark-runner -f
+```
+
+### GitHub Secrets
+
+当前方案不需要任何 GitHub Secrets。敏感配置在服务器 `/opt/cc-lark-channel/.env` 本地维护。
+
+### 敏感配置管理
+
+服务器上的 `.env` 文件（CI 不会覆盖）：
+
+```bash
+# /opt/cc-lark-channel/.env
+CLC_LARK_APP_ID=cli_axxxxxxxxxxxx
+CLC_LARK_APP_SECRET=QhkMpxxxxxxxxxxxxxxxxxxxx
+ANTHROPIC_AUTH_TOKEN=sk-ant-xxx  # 如需要
+```
+
+环境变量优先级：环境变量 > config.toml。
 
 ---
 

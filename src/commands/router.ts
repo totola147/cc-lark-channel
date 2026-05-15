@@ -160,8 +160,9 @@ export class CommandRouter {
           break;
         }
         const session = this.sessionManager.getOrCreateSession(chatId);
-        session.cwd = cmd.args;
-        await this.larkClient.sendText(chatId, `CWD → ${cmd.args}`);
+        const cdPath = cmd.args.replace(/^["']|["']$/g, "");
+        session.cwd = cdPath;
+        await this.larkClient.sendText(chatId, `CWD → ${cdPath}`);
         break;
       }
     }
