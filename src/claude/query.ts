@@ -5,6 +5,7 @@ import type { PermissionBroker } from "./permission-broker.js";
 
 export interface QueryOptions {
   prompt: string;
+  imageDataUris?: string[];
   cwd: string;
   model: string;
   permissionMode: PermissionMode;
@@ -26,8 +27,23 @@ export function createQuery(
   const abort = new AbortController();
   let aborted = false;
 
+  // Build prompt: string for text-only, AsyncIterable<SDKUserMessage> for multimodal
+  let promptInput: string | AsyncIterable<{ type: "user"; message: { role: "user"; content: unknown[] }; parent_tool_use_id: null }>;
+  if (opts.imageDataUris?.length) {
+    const content: unknown[] = [];
+    if (opts.prompt) content.push({ type: "text", text: opts.prompt });
+    for (const uri of opts.imageDataUris) {
+      const data = uri.replace(/^data:image\/\w+;base64,/, "");
+      content.push({ type: "image", source: { type: "base64", media_type: "image/png", data } });
+    }
+    const msg = { type: "user" as const, message: { role: "user" as const, content }, parent_tool_use_id: null };
+    promptInput = (async function* () { yield msg; })();
+  } else {
+    promptInput = opts.prompt;
+  }
+
   const q = query({
-    prompt: opts.prompt,
+    prompt: promptInput as Parameters<typeof query>[0]["prompt"],
     options: {
       cwd: opts.cwd,
       model: opts.model || undefined,
