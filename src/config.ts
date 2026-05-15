@@ -69,7 +69,7 @@ const ConfigSchema = z.object({
 export type AppConfig = z.infer<typeof ConfigSchema>;
 
 /**
- * Environment variable overrides. Env vars take precedence over config.toml.
+ * Environment variable overrides applied BEFORE Zod validation.
  * Prefix: CLC_
  *
  * CLC_LARK_APP_ID           → lark.app_id
@@ -81,29 +81,27 @@ export type AppConfig = z.infer<typeof ConfigSchema>;
  * CLC_LOG_LEVEL             → logging.level
  * CLC_STATE_DIR             → persistence.state_dir
  */
-function applyEnvOverrides(config: AppConfig): AppConfig {
+function applyRawEnvOverrides(parsed: Record<string, unknown>): void {
   const env = process.env;
+  if (!parsed["lark"] || typeof parsed["lark"] !== "object") parsed["lark"] = {};
+  const lark = parsed["lark"] as Record<string, unknown>;
+  if (env["CLC_LARK_APP_ID"]) lark["app_id"] = env["CLC_LARK_APP_ID"];
+  if (env["CLC_LARK_APP_SECRET"]) lark["app_secret"] = env["CLC_LARK_APP_SECRET"];
 
-  if (env["CLC_LARK_APP_ID"]) config.lark.app_id = env["CLC_LARK_APP_ID"];
-  if (env["CLC_LARK_APP_SECRET"]) config.lark.app_secret = env["CLC_LARK_APP_SECRET"];
-  if (env["CLC_CLAUDE_CLI_PATH"]) config.claude.cli_path = env["CLC_CLAUDE_CLI_PATH"];
-  if (env["CLC_CLAUDE_DEFAULT_MODEL"]) config.claude.default_model = env["CLC_CLAUDE_DEFAULT_MODEL"];
-  if (env["CLC_CLAUDE_DEFAULT_CWD"]) config.claude.default_cwd = env["CLC_CLAUDE_DEFAULT_CWD"];
-  if (env["CLC_CLAUDE_PERMISSION_MODE"]) {
-    const mode = env["CLC_CLAUDE_PERMISSION_MODE"];
-    if (mode === "default" || mode === "acceptEdits" || mode === "bypassPermissions") {
-      config.claude.permission_mode = mode;
-    }
-  }
-  if (env["CLC_LOG_LEVEL"]) {
-    const level = env["CLC_LOG_LEVEL"];
-    if (["trace", "debug", "info", "warn", "error"].includes(level)) {
-      config.logging.level = level as AppConfig["logging"]["level"];
-    }
-  }
-  if (env["CLC_STATE_DIR"]) config.persistence.state_dir = env["CLC_STATE_DIR"];
+  if (!parsed["claude"] || typeof parsed["claude"] !== "object") parsed["claude"] = {};
+  const claude = parsed["claude"] as Record<string, unknown>;
+  if (env["CLC_CLAUDE_CLI_PATH"]) claude["cli_path"] = env["CLC_CLAUDE_CLI_PATH"];
+  if (env["CLC_CLAUDE_DEFAULT_MODEL"]) claude["default_model"] = env["CLC_CLAUDE_DEFAULT_MODEL"];
+  if (env["CLC_CLAUDE_DEFAULT_CWD"]) claude["default_cwd"] = env["CLC_CLAUDE_DEFAULT_CWD"];
+  if (env["CLC_CLAUDE_PERMISSION_MODE"]) claude["permission_mode"] = env["CLC_CLAUDE_PERMISSION_MODE"];
 
-  return config;
+  if (!parsed["logging"] || typeof parsed["logging"] !== "object") parsed["logging"] = {};
+  const logging = parsed["logging"] as Record<string, unknown>;
+  if (env["CLC_LOG_LEVEL"]) logging["level"] = env["CLC_LOG_LEVEL"];
+
+  if (!parsed["persistence"] || typeof parsed["persistence"] !== "object") parsed["persistence"] = {};
+  const persistence = parsed["persistence"] as Record<string, unknown>;
+  if (env["CLC_STATE_DIR"]) persistence["state_dir"] = env["CLC_STATE_DIR"];
 }
 
 function expandHome(p: string): string {
@@ -115,10 +113,9 @@ function expandHome(p: string): string {
 
 export async function loadConfig(configPath: string): Promise<AppConfig> {
   const raw = await readFile(configPath, "utf-8");
-  const parsed = parse(raw);
+  const parsed = parse(raw) as Record<string, unknown>;
+  applyRawEnvOverrides(parsed);
   const config = ConfigSchema.parse(parsed);
-
-  applyEnvOverrides(config);
 
   config.persistence.state_dir = expandHome(config.persistence.state_dir);
   config.claude.default_cwd = expandHome(config.claude.default_cwd);

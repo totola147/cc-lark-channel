@@ -44,7 +44,10 @@ jobs:
       - name: Restart service
         run: |
           cd /opt/cc-lark-channel
-          pm2 restart cc-lark-channel 2>/dev/null || pm2 start dist/index.js --name cc-lark-channel
+          set -a && source .env && set +a
+          export CLC_CONFIG=/opt/cc-lark-channel/config.toml
+          pm2 delete cc-lark-channel 2>/dev/null || true
+          pm2 start dist/index.js --name cc-lark-channel --update-env
           pm2 save
 
       - name: Health check
