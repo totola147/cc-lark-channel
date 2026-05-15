@@ -11,86 +11,85 @@ jobs:
 
   deploy:
     needs: ci
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     environment: production
     steps:
-      - name: Deploy with rollback
-        uses: appleboy/ssh-action@v1
-        env:
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_KEY }}
-          envs: DEPLOY_PATH
-          script: |
-            set -e
-            cd "$DEPLOY_PATH"
+          node-version: 22
+          cache: npm
 
-            # Record current commit for rollback
-            PREV_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
-            echo "Previous commit: ${PREV_COMMIT:-none}"
+      - name: Record previous commit for rollback
+        id: prev
+        run: |
+          if [ -f /opt/cc-lark-channel/dist/index.js ]; then
+            echo "commit=$(git -C /opt/cc-lark-channel rev-parse HEAD 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
+          else
+            echo "commit=" >> $GITHUB_OUTPUT
+          fi
 
-            # Pull latest code
-            git fetch origin main
-            git reset --hard origin/main
+      - name: Install and build
+        run: |
+          npm ci
+          npm run build
 
-            # Install dependencies
-            npm ci --production=false
+      - name: Deploy to /opt/cc-lark-channel
+        run: |
+          sudo rsync -a --delete --exclude='.env' --exclude='config.toml' --exclude='node_modules' --exclude='.git' ./ /opt/cc-lark-channel/
+          cd /opt/cc-lark-channel
+          npm ci --omit=dev
 
-            # Build
-            npm run build
+      - name: Restart service
+        run: |
+          cd /opt/cc-lark-channel
+          pm2 restart cc-lark-channel 2>/dev/null || pm2 start dist/index.js --name cc-lark-channel
+          pm2 save
 
-            # Restart service
-            pm2 restart cc-lark-channel || pm2 start dist/index.js --name cc-lark-channel
-
-            # Health check: wait up to 20s for process to stabilize
-            echo "Waiting for health check..."
-            HEALTHY=false
-            for i in $(seq 1 10); do
-              sleep 2
-              STATUS=$(pm2 jlist 2>/dev/null | python3 -c "
-            import json, sys
-            try:
-              data = json.load(sys.stdin)
-              for p in data:
-                if p.get('name') == 'cc-lark-channel':
-                  print(p.get('pm2_env',{}).get('status',''))
-                  break
-            except: print('unknown')
-            " 2>/dev/null || echo "unknown")
-              echo "  Check $i/10: $STATUS"
-              if [ "$STATUS" = "online" ]; then
-                HEALTHY=true
+      - name: Health check
+        id: health
+        run: |
+          HEALTHY=false
+          for i in $(seq 1 10); do
+            sleep 2
+            STATUS=$(pm2 jlist 2>/dev/null | python3 -c "
+          import json, sys
+          try:
+            data = json.load(sys.stdin)
+            for p in data:
+              if p.get('name') == 'cc-lark-channel':
+                print(p.get('pm2_env',{}).get('status',''))
                 break
-              fi
-              if [ "$STATUS" = "errored" ] || [ "$STATUS" = "stopped" ]; then
-                break
-              fi
-            done
-
-            if [ "$HEALTHY" = "true" ]; then
-              echo "Deploy successful"
-              exit 0
+          except: print('unknown')
+          " 2>/dev/null || echo "unknown")
+            echo "  Check $i/10: $STATUS"
+            if [ "$STATUS" = "online" ]; then
+              HEALTHY=true
+              break
             fi
-
-            # Rollback
-            echo "Health check failed — rolling back"
-            pm2 logs cc-lark-channel --lines 30 --nostream
-            pm2 stop cc-lark-channel
-
-            if [ -n "$PREV_COMMIT" ]; then
-              echo "Restoring previous commit: $PREV_COMMIT"
-              git reset --hard "$PREV_COMMIT"
-              npm ci --production=false
-              npm run build
-              pm2 restart cc-lark-channel
-              echo "Rollback complete"
-            else
-              echo "No previous commit to rollback to"
+            if [ "$STATUS" = "errored" ] || [ "$STATUS" = "stopped" ]; then
+              break
             fi
-
+          done
+          echo "healthy=$HEALTHY" >> $GITHUB_OUTPUT
+          if [ "$HEALTHY" != "true" ]; then
+            echo "Health check failed"
+            pm2 logs cc-lark-channel --lines 20 --nostream || true
             exit 1
+          fi
+
+      - name: Rollback on failure
+        if: failure() && steps.prev.outputs.commit != ''
+        run: |
+          echo "Rolling back to ${{ steps.prev.outputs.commit }}"
+          cd /opt/cc-lark-channel
+          git init . 2>/dev/null || true
+          git fetch origin ${{ steps.prev.outputs.commit }} --depth=1
+          git checkout ${{ steps.prev.outputs.commit }} -- .
+          npm ci --omit=dev
+          pm2 restart cc-lark-channel
+          echo "Rollback complete"
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
