@@ -98,7 +98,7 @@ export class ClaudeSession {
     await this.larkClient.sendText(this.chatId, "⏹ Stopped");
   }
 
-  private async runTurn(text: string, _imageDataUris?: string[]): Promise<void> {
+  private async runTurn(text: string, imageDataUris?: string[]): Promise<void> {
     this.state = "generating";
     this.turnCount++;
     this.broker.resetTurn();
@@ -108,6 +108,7 @@ export class ClaudeSession {
     const handle = createQuery(
       {
         prompt: text,
+        imageDataUris,
         cwd: this.cwd,
         model: this.model,
         permissionMode: this.permissionMode,

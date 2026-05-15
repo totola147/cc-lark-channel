@@ -53,7 +53,25 @@ export class SessionManager {
       return;
     }
 
-    const result = await session.submit(msg.text, undefined);
+    // Download images from Lark if present
+    let imageDataUris: string[] | undefined;
+    if (msg.imageKeys.length > 0) {
+      imageDataUris = [];
+      for (const key of msg.imageKeys) {
+        try {
+          const buf = await this.larkClient.downloadImage(msg.messageId, key);
+          const base64 = buf.toString("base64");
+          imageDataUris.push(`data:image/png;base64,${base64}`);
+        } catch (err) {
+          this.logger.warn({ err, imageKey: key }, "Failed to download image");
+        }
+      }
+    }
+
+    const prompt = msg.text || (imageDataUris?.length ? "Please analyze this image." : "");
+    if (!prompt && !imageDataUris?.length) return;
+
+    const result = await session.submit(prompt, imageDataUris);
 
     if (result.kind === "queued") {
       await this.larkClient.sendText(msg.chatId, `📋 Queued (position ${result.position})`);
