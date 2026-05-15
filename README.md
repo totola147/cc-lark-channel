@@ -52,15 +52,12 @@ default_cwd = "/path/to/your/project"
 # 开发模式
 npm run dev
 
-# 或构建后运行
+# 生产模式
 npm run build
 npm start
-```
 
-### Docker 部署
-
-```bash
-docker compose up -d
+# 使用 pm2 守护进程（推荐）
+pm2 start dist/index.js --name cc-lark-channel
 ```
 
 ## 命令

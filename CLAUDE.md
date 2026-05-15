@@ -131,7 +131,19 @@ npm run typecheck    # 类型检查
 npm run build        # tsup 打包 → dist/index.js
 npm run dev          # tsx 开发模式
 npm run test         # vitest 单元测试
+npm start            # 生产运行
 ```
+
+## 部署
+
+直接在服务器上以 Node.js 进程运行（需要同机安装 Claude Code CLI）：
+
+```bash
+git clone → npm ci → npm run build → pm2 start dist/index.js --name cc-lark-channel
+```
+
+不使用 Docker，因为 Claude Agent SDK 需要 spawn 本地 `claude` CLI 子进程，
+且 Claude Code 需要直接访问项目文件系统。
 
 ## 配置文件
 

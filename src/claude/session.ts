@@ -81,6 +81,7 @@ export class ClaudeSession {
     // Flush queue — all queued inputs are dropped
     for (const q of this.queue) {
       q.deferred.reject(new Error("interrupted"));
+      q.deferred.promise.catch(() => {});
     }
     this.queue = [];
 

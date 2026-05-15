@@ -1,0 +1,125 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: ci
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy with rollback
+        uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          envs: DEPLOY_PATH
+          script: |
+            set -e
+            cd "$DEPLOY_PATH"
+
+            # Record current commit for rollback
+            PREV_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
+            echo "Previous commit: ${PREV_COMMIT:-none}"
+
+            # Pull latest code
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Install dependencies
+            npm ci --production=false
+
+            # Build
+            npx tsup
+
+            # Restart service
+            pm2 restart cc-lark-channel || pm2 start dist/index.js --name cc-lark-channel
+
+            # Health check: wait up to 20s for process to stabilize
+            echo "Waiting for health check..."
+            HEALTHY=false
+            for i in $(seq 1 10); do
+              sleep 2
+              STATUS=$(pm2 jlist 2>/dev/null | python3 -c "
+            import json, sys
+            try:
+              data = json.load(sys.stdin)
+              for p in data:
+                if p.get('name') == 'cc-lark-channel':
+                  print(p.get('pm2_env',{}).get('status',''))
+                  break
+            except: print('unknown')
+            " 2>/dev/null || echo "unknown")
+              echo "  Check $i/10: $STATUS"
+              if [ "$STATUS" = "online" ]; then
+                HEALTHY=true
+                break
+              fi
+              if [ "$STATUS" = "errored" ] || [ "$STATUS" = "stopped" ]; then
+                break
+              fi
+            done
+
+            if [ "$HEALTHY" = "true" ]; then
+              echo "Deploy successful"
+              exit 0
+            fi
+
+            # Rollback
+            echo "Health check failed — rolling back"
+            pm2 logs cc-lark-channel --lines 30 --nostream
+            pm2 stop cc-lark-channel
+
+            if [ -n "$PREV_COMMIT" ]; then
+              echo "Restoring previous commit: $PREV_COMMIT"
+              git reset --hard "$PREV_COMMIT"
+              npm ci --production=false
+              npx tsup
+              pm2 restart cc-lark-channel
+              echo "Rollback complete"
+            else
+              echo "No previous commit to rollback to"
+            fi
+
+            exit 1
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git tag --sort=-version:refname | sed -n '2p')
+          if [ -n "$PREV_TAG" ]; then
+            echo "changelog<<EOF" >> $GITHUB_OUTPUT
+            git log --pretty=format:"- %s (%h)" "$PREV_TAG"..HEAD >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "changelog<<EOF" >> $GITHUB_OUTPUT
+            git log --pretty=format:"- %s (%h)" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.changelog.outputs.changelog }}
+          generate_release_notes: true

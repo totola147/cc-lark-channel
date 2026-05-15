@@ -68,6 +68,44 @@ const ConfigSchema = z.object({
 
 export type AppConfig = z.infer<typeof ConfigSchema>;
 
+/**
+ * Environment variable overrides. Env vars take precedence over config.toml.
+ * Prefix: CLC_
+ *
+ * CLC_LARK_APP_ID           → lark.app_id
+ * CLC_LARK_APP_SECRET       → lark.app_secret
+ * CLC_CLAUDE_CLI_PATH       → claude.cli_path
+ * CLC_CLAUDE_DEFAULT_MODEL  → claude.default_model
+ * CLC_CLAUDE_DEFAULT_CWD    → claude.default_cwd
+ * CLC_CLAUDE_PERMISSION_MODE → claude.permission_mode
+ * CLC_LOG_LEVEL             → logging.level
+ * CLC_STATE_DIR             → persistence.state_dir
+ */
+function applyEnvOverrides(config: AppConfig): AppConfig {
+  const env = process.env;
+
+  if (env["CLC_LARK_APP_ID"]) config.lark.app_id = env["CLC_LARK_APP_ID"];
+  if (env["CLC_LARK_APP_SECRET"]) config.lark.app_secret = env["CLC_LARK_APP_SECRET"];
+  if (env["CLC_CLAUDE_CLI_PATH"]) config.claude.cli_path = env["CLC_CLAUDE_CLI_PATH"];
+  if (env["CLC_CLAUDE_DEFAULT_MODEL"]) config.claude.default_model = env["CLC_CLAUDE_DEFAULT_MODEL"];
+  if (env["CLC_CLAUDE_DEFAULT_CWD"]) config.claude.default_cwd = env["CLC_CLAUDE_DEFAULT_CWD"];
+  if (env["CLC_CLAUDE_PERMISSION_MODE"]) {
+    const mode = env["CLC_CLAUDE_PERMISSION_MODE"];
+    if (mode === "default" || mode === "acceptEdits" || mode === "bypassPermissions") {
+      config.claude.permission_mode = mode;
+    }
+  }
+  if (env["CLC_LOG_LEVEL"]) {
+    const level = env["CLC_LOG_LEVEL"];
+    if (["trace", "debug", "info", "warn", "error"].includes(level)) {
+      config.logging.level = level as AppConfig["logging"]["level"];
+    }
+  }
+  if (env["CLC_STATE_DIR"]) config.persistence.state_dir = env["CLC_STATE_DIR"];
+
+  return config;
+}
+
 function expandHome(p: string): string {
   if (p.startsWith("~/")) {
     return resolve(homedir(), p.slice(2));
@@ -79,6 +117,8 @@ export async function loadConfig(configPath: string): Promise<AppConfig> {
   const raw = await readFile(configPath, "utf-8");
   const parsed = parse(raw);
   const config = ConfigSchema.parse(parsed);
+
+  applyEnvOverrides(config);
 
   config.persistence.state_dir = expandHome(config.persistence.state_dir);
   config.claude.default_cwd = expandHome(config.claude.default_cwd);

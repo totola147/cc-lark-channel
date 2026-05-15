@@ -5,10 +5,9 @@
 1. [环境要求](#环境要求)
 2. [飞书应用配置](#飞书应用配置)
 3. [本地部署](#本地部署)
-4. [Docker 部署](#docker-部署)
-5. [配置详解](#配置详解)
-6. [验证运行](#验证运行)
-7. [常见问题](#常见问题)
+4. [配置详解](#配置详解)
+5. [验证运行](#验证运行)
+6. [常见问题](#常见问题)
 
 ---
 
@@ -151,7 +150,33 @@ npm run build
 npm start
 ```
 
-### 使用 systemd 守护进程（Linux）
+### 使用 pm2 守护进程（推荐）
+
+安装 pm2：
+
+```bash
+npm install -g pm2
+```
+
+启动服务：
+
+```bash
+cd /opt/cc-lark-channel
+npm run build
+CLC_CONFIG=/opt/cc-lark-channel/config.toml pm2 start dist/index.js --name cc-lark-channel
+```
+
+常用命令：
+
+```bash
+pm2 logs cc-lark-channel     # 查看日志
+pm2 restart cc-lark-channel  # 重启
+pm2 stop cc-lark-channel     # 停止
+pm2 save                     # 保存进程列表
+pm2 startup                  # 设置开机自启
+```
+
+### 使用 systemd 守护进程（备选）
 
 创建 `/etc/systemd/system/cc-lark-channel.service`：
 
@@ -183,61 +208,6 @@ sudo systemctl start cc-lark-channel
 # 查看日志
 journalctl -u cc-lark-channel -f
 ```
-
----
-
-## Docker 部署
-
-### 构建镜像
-
-```bash
-docker build -t cc-lark-channel .
-```
-
-### 使用 docker-compose（推荐）
-
-1. 准备配置文件：
-
-```bash
-cp config.example.toml config.toml
-# 编辑 config.toml 填入飞书凭证
-```
-
-2. 启动：
-
-```bash
-docker compose up -d
-```
-
-3. 查看日志：
-
-```bash
-docker compose logs -f
-```
-
-4. 停止：
-
-```bash
-docker compose down
-```
-
-### 手动 docker run
-
-```bash
-docker run -d \
-  --name cc-lark-channel \
-  --restart unless-stopped \
-  -v $(pwd)/config.toml:/app/config.toml:ro \
-  -v cc-lark-data:/root/.cc-lark-channel \
-  -v /workspace:/workspace \
-  cc-lark-channel
-```
-
-### 注意事项
-
-- Docker 容器内需要能访问 `claude` CLI。如果 Claude Code 安装在宿主机，需要挂载进容器或在容器内安装
-- `/workspace` 挂载路径应与 `config.toml` 中 `claude.default_cwd` 一致
-- 数据卷 `cc-lark-data` 存储会话持久化数据
 
 ---
 
@@ -330,11 +300,18 @@ docker run -d \
 
 ### Q: Claude 报错 "command not found"
 
-Docker 容器内需要安装 Claude Code CLI，或将宿主机的 `claude` 二进制挂载进容器：
+确认 `claude` CLI 已安装且在 `$PATH` 中可用：
 
-```yaml
-volumes:
-  - /usr/local/bin/claude:/usr/local/bin/claude:ro
+```bash
+which claude
+claude --version
+```
+
+如果安装在非标准路径，在 `config.toml` 中指定：
+
+```toml
+[claude]
+cli_path = "/home/ubuntu/.npm-global/bin/claude"
 ```
 
 ### Q: 如何更新 Claude Code 模型
