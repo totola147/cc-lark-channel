@@ -1,10 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SessionManager } from "../../src/claude/session-manager.ts";
 import { PermissionBroker } from "../../src/claude/permission-broker.ts";
 import { StateStore } from "../../src/persistence/store.ts";
 import type { LarkClient } from "../../src/lark/client.ts";
 import type { AppConfig } from "../../src/config.ts";
 import type { IncomingMessage } from "../../src/types.ts";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import pino from "pino";
 
 const logger = pino({ level: "silent" });
@@ -64,6 +67,8 @@ describe("E2E: Full message flow", () => {
   let broker: PermissionBroker;
   let stateStore: StateStore;
 
+  let tmpDir: string;
+
   beforeEach(async () => {
     vi.clearAllMocks();
     lark = mockLark();
@@ -72,9 +77,14 @@ describe("E2E: Full message flow", () => {
       lark,
       logger,
     );
-    stateStore = new StateStore("/tmp/clc-e2e-test", logger);
+    tmpDir = await mkdtemp(join(tmpdir(), "clc-e2e-"));
+    stateStore = new StateStore(tmpDir, logger);
     await stateStore.load();
     manager = new SessionManager(mockConfig, stateStore, broker, lark, logger);
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
   });
 
   it("handles a simple text message → Claude response", async () => {

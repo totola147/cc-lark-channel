@@ -6,8 +6,13 @@ import type { IncomingMessage } from "../types.js";
 import type { StateStore } from "../persistence/store.js";
 import { ClaudeSession } from "./session.js";
 
+interface ChatState {
+  foregroundId: string;
+  sessions: Map<string, ClaudeSession>;
+}
+
 export class SessionManager {
-  private readonly sessions = new Map<string, ClaudeSession>();
+  private readonly chats = new Map<string, ChatState>();
 
   constructor(
     private readonly config: AppConfig,
@@ -18,42 +23,30 @@ export class SessionManager {
   ) {}
 
   getSession(chatId: string): ClaudeSession | undefined {
-    return this.sessions.get(chatId);
+    const chat = this.chats.get(chatId);
+    if (!chat) return undefined;
+    return chat.sessions.get(chat.foregroundId);
   }
 
   getOrCreateSession(chatId: string): ClaudeSession {
-    let session = this.sessions.get(chatId);
-    if (!session) {
-      const saved = this.stateStore.getSession(chatId);
-      session = new ClaudeSession(
-        chatId,
-        this.config,
-        this.larkClient,
-        this.broker,
-        this.logger.child({ chatId }),
-        saved?.cwd ?? this.config.claude.default_cwd,
-        saved?.permissionMode ?? this.config.claude.permission_mode,
-        saved?.model ?? this.config.claude.default_model,
-      );
-      if (saved?.providerSessionId) {
-        session.providerSessionId = saved.providerSessionId;
-      }
-      this.sessions.set(chatId, session);
+    let chat = this.chats.get(chatId);
+    if (!chat) {
+      const session = this.createSession(chatId);
+      chat = { foregroundId: session.id, sessions: new Map([[session.id, session]]) };
+      this.chats.set(chatId, chat);
     }
-    return session;
+    return chat.sessions.get(chat.foregroundId)!;
   }
 
   async handleMessage(msg: IncomingMessage): Promise<void> {
     const session = this.getOrCreateSession(msg.chatId);
 
-    // Handle ! prefix interrupt
     if (msg.text.startsWith("!")) {
       const newText = msg.text.slice(1).trim();
       await session.interrupt(newText || undefined);
       return;
     }
 
-    // Download images from Lark if present
     let imageDataUris: string[] | undefined;
     if (msg.imageKeys.length > 0) {
       imageDataUris = [];
@@ -79,17 +72,114 @@ export class SessionManager {
       await this.larkClient.sendText(msg.chatId, "⚠️ Queue full, please wait");
     }
 
-    // Persist session state
-    this.persistSession(msg.chatId, session);
+    this.persistChat(msg.chatId);
   }
 
   newSession(chatId: string): ClaudeSession {
-    const existing = this.sessions.get(chatId);
-    if (existing) {
-      existing.interrupt();
+    const chat = this.chats.get(chatId);
+    if (chat) {
+      const fg = chat.sessions.get(chat.foregroundId);
+      if (fg) fg.interrupt();
     }
     this.broker.resetSession();
 
+    const session = this.createFreshSession(chatId);
+    if (chat) {
+      chat.sessions.set(session.id, session);
+      chat.foregroundId = session.id;
+    } else {
+      this.chats.set(chatId, { foregroundId: session.id, sessions: new Map([[session.id, session]]) });
+    }
+    this.stateStore.deleteSession(chatId);
+    return session;
+  }
+
+  backgroundSession(chatId: string, name?: string): { bgSession: ClaudeSession; fgSession: ClaudeSession } | null {
+    const chat = this.chats.get(chatId);
+    if (!chat) return null;
+
+    const bgSession = chat.sessions.get(chat.foregroundId);
+    if (!bgSession) return null;
+
+    if (name) bgSession.name = name;
+
+    const fgSession = this.createSession(chatId);
+    chat.sessions.set(fgSession.id, fgSession);
+    chat.foregroundId = fgSession.id;
+
+    this.persistChat(chatId);
+    return { bgSession, fgSession };
+  }
+
+  foregroundSession(chatId: string, sessionId: string): ClaudeSession | null {
+    const chat = this.chats.get(chatId);
+    if (!chat) return null;
+
+    const target = chat.sessions.get(sessionId)
+      ?? [...chat.sessions.values()].find(s => s.name === sessionId);
+    if (!target) return null;
+
+    chat.foregroundId = target.id;
+    this.persistChat(chatId);
+    return target;
+  }
+
+  killSession(chatId: string, sessionId: string): boolean {
+    const chat = this.chats.get(chatId);
+    if (!chat) return false;
+
+    const target = chat.sessions.get(sessionId)
+      ?? [...chat.sessions.values()].find(s => s.name === sessionId);
+    if (!target) return false;
+    if (target.id === chat.foregroundId) return false;
+
+    target.interrupt();
+    chat.sessions.delete(target.id);
+    this.persistChat(chatId);
+    return true;
+  }
+
+  getSessionList(chatId: string): Array<{ id: string; name?: string; state: string; isForeground: boolean }> {
+    const chat = this.chats.get(chatId);
+    if (!chat) return [];
+
+    return [...chat.sessions.values()].map(s => ({
+      id: s.id,
+      name: s.name,
+      state: s.getState(),
+      isForeground: s.id === chat.foregroundId,
+    }));
+  }
+
+  async shutdown(): Promise<void> {
+    for (const [chatId, chat] of this.chats) {
+      for (const session of chat.sessions.values()) {
+        await session.interrupt();
+      }
+      this.persistChat(chatId);
+    }
+  }
+
+  private createSession(chatId: string): ClaudeSession {
+    const saved = this.stateStore.getSession(chatId);
+    const session = new ClaudeSession(
+      chatId,
+      this.config,
+      this.larkClient,
+      this.broker,
+      this.logger.child({ chatId }),
+      saved?.cwd ?? this.config.claude.default_cwd,
+      saved?.permissionMode ?? this.config.claude.permission_mode,
+      saved?.model ?? this.config.claude.default_model,
+    );
+    if (saved?.providerSessionId) {
+      session.providerSessionId = saved.providerSessionId;
+    }
+    this.attachTurnCallback(chatId, session);
+    return session;
+  }
+
+  private createFreshSession(chatId: string): ClaudeSession {
     const session = new ClaudeSession(
       chatId,
       this.config,
@@ -100,29 +190,35 @@ export class SessionManager {
       this.config.claude.permission_mode,
       this.config.claude.default_model,
     );
-    this.sessions.set(chatId, session);
-    this.stateStore.deleteSession(chatId);
+    this.attachTurnCallback(chatId, session);
     return session;
   }
 
-  private persistSession(chatId: string, session: ClaudeSession): void {
+  private attachTurnCallback(chatId: string, session: ClaudeSession): void {
+    session.onTurnComplete = () => {
+      const chat = this.chats.get(chatId);
+      if (chat && session.id !== chat.foregroundId) {
+        this.larkClient.sendText(chatId, `🔔 Background session [${session.name || session.id}] finished`).catch(() => {});
+      }
+      this.persistChat(chatId);
+    };
+  }
+
+  private persistChat(chatId: string): void {
+    const chat = this.chats.get(chatId);
+    if (!chat) return;
+    const fg = chat.sessions.get(chat.foregroundId);
+    if (!fg) return;
     this.stateStore.setSession(chatId, {
-      providerSessionId: session.providerSessionId,
-      cwd: session.cwd,
+      providerSessionId: fg.providerSessionId,
+      cwd: fg.cwd,
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
-      permissionMode: session.permissionMode,
-      model: session.model,
+      permissionMode: fg.permissionMode,
+      model: fg.model,
     });
     this.stateStore.save().catch((err) => {
       this.logger.warn({ err }, "Failed to persist state");
     });
-  }
-
-  async shutdown(): Promise<void> {
-    for (const [chatId, session] of this.sessions) {
-      await session.interrupt();
-      this.persistSession(chatId, session);
-    }
   }
 }
