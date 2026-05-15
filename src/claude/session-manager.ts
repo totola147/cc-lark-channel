@@ -13,30 +13,22 @@ export class SessionManager {
     private readonly config: AppConfig,
     private readonly stateStore: StateStore,
     private readonly broker: PermissionBroker,
+    private readonly larkClient: LarkClient,
     private readonly logger: Logger,
   ) {}
-
-  get larkClient(): LarkClient {
-    // Injected via index.ts wiring — accessed through config indirection
-    return (this as unknown as { _larkClient: LarkClient })._larkClient;
-  }
-
-  setLarkClient(client: LarkClient): void {
-    (this as unknown as { _larkClient: LarkClient })._larkClient = client;
-  }
 
   getSession(chatId: string): ClaudeSession | undefined {
     return this.sessions.get(chatId);
   }
 
-  getOrCreateSession(chatId: string, larkClient: LarkClient): ClaudeSession {
+  getOrCreateSession(chatId: string): ClaudeSession {
     let session = this.sessions.get(chatId);
     if (!session) {
       const saved = this.stateStore.getSession(chatId);
       session = new ClaudeSession(
         chatId,
         this.config,
-        larkClient,
+        this.larkClient,
         this.broker,
         this.logger.child({ chatId }),
         saved?.cwd ?? this.config.claude.default_cwd,
@@ -52,8 +44,7 @@ export class SessionManager {
   }
 
   async handleMessage(msg: IncomingMessage): Promise<void> {
-    const larkClient = this.larkClient;
-    const session = this.getOrCreateSession(msg.chatId, larkClient);
+    const session = this.getOrCreateSession(msg.chatId);
 
     // Handle ! prefix interrupt
     if (msg.text.startsWith("!")) {
@@ -65,16 +56,16 @@ export class SessionManager {
     const result = await session.submit(msg.text, undefined);
 
     if (result.kind === "queued") {
-      await larkClient.sendText(msg.chatId, `📋 Queued (position ${result.position})`);
+      await this.larkClient.sendText(msg.chatId, `📋 Queued (position ${result.position})`);
     } else if (result.kind === "rejected") {
-      await larkClient.sendText(msg.chatId, "⚠️ Queue full, please wait");
+      await this.larkClient.sendText(msg.chatId, "⚠️ Queue full, please wait");
     }
 
     // Persist session state
     this.persistSession(msg.chatId, session);
   }
 
-  newSession(chatId: string, larkClient: LarkClient): ClaudeSession {
+  newSession(chatId: string): ClaudeSession {
     const existing = this.sessions.get(chatId);
     if (existing) {
       existing.interrupt();
@@ -84,7 +75,7 @@ export class SessionManager {
     const session = new ClaudeSession(
       chatId,
       this.config,
-      larkClient,
+      this.larkClient,
       this.broker,
       this.logger.child({ chatId }),
       this.config.claude.default_cwd,

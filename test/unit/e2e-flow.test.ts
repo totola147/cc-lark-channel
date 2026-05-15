@@ -74,8 +74,7 @@ describe("E2E: Full message flow", () => {
     );
     stateStore = new StateStore("/tmp/clc-e2e-test", logger);
     await stateStore.load();
-    manager = new SessionManager(mockConfig, stateStore, broker, logger);
-    manager.setLarkClient(lark);
+    manager = new SessionManager(mockConfig, stateStore, broker, lark, logger);
   });
 
   it("handles a simple text message → Claude response", async () => {
@@ -158,7 +157,7 @@ describe("E2E: Full message flow", () => {
     await new Promise((r) => setTimeout(r, 100));
 
     // Now create new session
-    manager.newSession("chat-1", lark);
+    manager.newSession("chat-1");
     const session = manager.getSession("chat-1");
     expect(session!.providerSessionId).toBeUndefined();
   });

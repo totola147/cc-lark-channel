@@ -40,7 +40,7 @@ export class CommandRouter {
         break;
 
       case "/new":
-        this.sessionManager.newSession(chatId, this.larkClient);
+        this.sessionManager.newSession(chatId);
         await this.larkClient.sendText(chatId, "🆕 New session started");
         break;
 
@@ -80,7 +80,7 @@ export class CommandRouter {
           await this.larkClient.sendText(chatId, `Usage: /mode <${validModes.join("|")}>`);
           break;
         }
-        const session = this.sessionManager.getOrCreateSession(chatId, this.larkClient);
+        const session = this.sessionManager.getOrCreateSession(chatId);
         session.permissionMode = cmd.args as PermissionMode;
         await this.larkClient.sendText(chatId, `Permission mode: ${cmd.args}`);
         break;
@@ -91,7 +91,7 @@ export class CommandRouter {
           await this.larkClient.sendText(chatId, "Usage: /model <model-name>");
           break;
         }
-        const session = this.sessionManager.getOrCreateSession(chatId, this.larkClient);
+        const session = this.sessionManager.getOrCreateSession(chatId);
         session.model = cmd.args;
         await this.larkClient.sendText(chatId, `Model: ${cmd.args}`);
         break;
@@ -103,7 +103,7 @@ export class CommandRouter {
           await this.larkClient.sendText(chatId, `CWD: ${session?.cwd ?? this.config.claude.default_cwd}`);
           break;
         }
-        const session = this.sessionManager.getOrCreateSession(chatId, this.larkClient);
+        const session = this.sessionManager.getOrCreateSession(chatId);
         session.cwd = cmd.args;
         await this.larkClient.sendText(chatId, `CWD → ${cmd.args}`);
         break;

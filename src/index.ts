@@ -21,7 +21,7 @@ async function main() {
 
   const larkClient = new LarkClient(config.lark, logger);
   const permissionBroker = new PermissionBroker(config.claude, larkClient, logger);
-  const sessionManager = new SessionManager(config, stateStore, permissionBroker, logger);
+  const sessionManager = new SessionManager(config, stateStore, permissionBroker, larkClient, logger);
   const commandRouter = new CommandRouter(sessionManager, larkClient, config, logger);
 
   const gateway = new LarkGateway({
