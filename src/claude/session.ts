@@ -135,8 +135,19 @@ export class ClaudeSession {
       const sessionId = (handle.events as { sessionId?: string }).sessionId;
       if (sessionId) this.providerSessionId = sessionId;
     } catch (err) {
+      const msg = (err as Error).message ?? "";
+      // Resume failed — retry without session ID
+      if (msg.includes("No conversation found") && this.providerSessionId) {
+        this.logger.warn("Resume failed, starting fresh session");
+        this.providerSessionId = undefined;
+        this.currentHandle = null;
+        this.state = "idle";
+        await this.finalizeCard();
+        this.runTurn(text, imageDataUris);
+        return;
+      }
       this.logger.error({ err }, "Turn execution error");
-      await this.larkClient.sendText(this.chatId, `❌ Error: ${(err as Error).message}`).catch(() => {});
+      await this.larkClient.sendText(this.chatId, `❌ Error: ${msg}`).catch(() => {});
     } finally {
       this.currentHandle = null;
       this.state = "idle";
@@ -246,6 +257,7 @@ export class ClaudeSession {
       outputTokens: 0,
       elapsedMs: 0,
       done: false,
+      cwd: this.cwd,
     };
   }
 }
