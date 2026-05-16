@@ -10,6 +10,7 @@ export interface StatusCardState {
   outputTokens: number;
   elapsedMs: number;
   done: boolean;
+  cwd?: string;
 }
 
 export function buildStatusCard(state: StatusCardState): FeishuCardV2 {
@@ -59,6 +60,10 @@ export function buildStatusCard(state: StatusCardState): FeishuCardV2 {
   const footer = `Tokens: ${state.inputTokens} in / ${state.outputTokens} out · ${(state.elapsedMs / 1000).toFixed(1)}s`;
   elements.push({ tag: "hr" });
   elements.push({ tag: "markdown", content: `<font color="grey">${footer}</font>` });
+
+  if (state.cwd) {
+    elements.push({ tag: "markdown", content: `<font color="grey">📂 ${esc(state.cwd)}</font>` });
+  }
 
   return {
     schema: "2.0",
