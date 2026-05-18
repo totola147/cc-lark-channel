@@ -84,7 +84,7 @@ describe("E2E: Full message flow", () => {
   });
 
   afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   });
 
   it("handles a simple text message → Claude response", async () => {
