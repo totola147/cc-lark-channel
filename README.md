@@ -4,61 +4,73 @@
 
 ## 特性
 
-- **交互式审批卡片** — 工具调用时发送 4 按钮卡片（允许/拒绝/本轮允许/本会话允许），手机点一下即可
+- **双模式接入** — 共享 Bot（扫码即用）或自有 Bot（企业私有化）
+- **Claude Code Skill** — 对 Claude Code 说"连接飞书"，自动完成安装配对
+- **交互式审批卡片** — 工具调用时发送 4 按钮卡片，手机点一下即可
 - **流式状态卡片** — 实时展示 thinking、工具调用、输出内容，原地更新不刷屏
 - **后台会话** — 长任务放后台继续跑，切到新会话继续工作，完成时收到通知
 - **消息队列** — 生成中发送的消息自动排队，空闲后依次执行
 - **中断机制** — `!` 前缀中断当前任务并执行新指令，`/stop` 停止生成
-- **会话持久化** — 进程重启不丢上下文，自动恢复会话
-- **图片支持** — 发截图给 Claude 分析，Claude 生成的图片自动回传
-- **零公网 IP** — 使用飞书 WebSocket 长连接，无需域名和反向代理
+- **图片支持** — 发截图给 Claude 分析
+- **零公网 IP** — 无需域名和反向代理
 - **供应链安全** — 仅依赖官方 SDK，无第三方运行时依赖
 
 ## 快速开始
 
-### 前置条件
+### 方式一：共享 Bot（推荐，最省事）
 
-- Node.js >= 20
-- Claude Code CLI 已安装并认证（`claude` 命令可用）
-- 飞书企业自建应用（[创建指南](./docs/setup-lark.md)）
+对你的 Claude Code 说：
 
-### 安装
-
-```bash
-git clone <repo-url> cc-lark-channel
-cd cc-lark-channel
-npm install
+```
+帮我连接飞书
 ```
 
-### 配置
+Claude Code 会自动安装、配对，你只需在飞书中扫码。
+
+或者手动：
 
 ```bash
-cp config.example.toml config.toml
+# 安装
+npm install -g @cc-lark/agent
+
+# 配对（获取 6 位码，在飞书中发送给 Bot）
+clc pair --relay wss://relay.cc-lark.dev
+
+# 启动
+clc --relay wss://relay.cc-lark.dev --token <your-token>
 ```
 
-编辑 `config.toml`，填入飞书凭证：
+### 方式二：自有 Bot（企业/隐私需求）
 
-```toml
+需要自己创建飞书应用（[创建指南](./docs/setup-lark.md)）。
+
+```bash
+# 安装
+npm install -g @cc-lark/agent
+
+# 配置
+cat > ~/.cc-lark-channel/config.toml << EOF
 [lark]
 app_id = "cli_axxxxxxxxxxxx"
 app_secret = "QhkMpxxxxxxxxxxxxxxxxxxxx"
 
 [claude]
-default_cwd = "/path/to/your/project"
+cli_path = "$(which claude)"
+default_cwd = "$(pwd)"
+EOF
+
+# 启动
+clc --direct --config ~/.cc-lark-channel/config.toml
 ```
 
-### 运行
+## 架构
 
-```bash
-# 开发模式
-npm run dev
+```
+方式一（共享 Bot）:
+  飞书用户 → 共享 Bot → Cloud Relay → WebSocket tunnel → 本地 clc → Claude Code
 
-# 生产模式
-npm run build
-npm start
-
-# 使用 pm2 守护进程（推荐）
-pm2 start dist/index.js --name cc-lark-channel
+方式二（自有 Bot）:
+  飞书用户 → 自有 Bot → 本地 clc → Claude Code（直连，不经过 Relay）
 ```
 
 ## 命令
@@ -84,16 +96,37 @@ pm2 start dist/index.js --name cc-lark-channel
 | `!<text>` | 中断当前生成，立即执行新指令 |
 | 普通文本 | 发送给 Claude（忙时自动排队） |
 
+## 项目结构（Monorepo）
+
+```
+packages/
+├── protocol/   共享消息类型定义（Relay ↔ Agent 协议）
+├── agent/      本地 agent（双模式 CLI：--direct / --relay）
+├── relay/      Cloud Relay 服务（共享 Bot + tunnel 路由 + 配对）
+└── skill/      Claude Code Skill（用户说"连飞书"自动安装配对）
+```
+
 ## 技术栈
 
 | 组件 | 选型 | 来源 |
 |------|------|------|
 | 飞书 SDK | `@larksuiteoapi/node-sdk` 1.64.0 | 字节跳动官方 |
 | Claude SDK | `@anthropic-ai/claude-agent-sdk` 0.3.142 | Anthropic 官方 |
-| 配置 | `smol-toml` | 社区标准 |
-| 验证 | `zod` | 社区标准 |
+| WebSocket | `ws` | 社区标准 |
+| 配置 | `smol-toml` + `zod` | 社区标准 |
 | 日志 | `pino` | 社区标准 |
 | 构建 | `tsup` | 社区标准 |
+| Monorepo | `pnpm workspace` | 社区标准 |
+
+## 开发
+
+```bash
+pnpm install        # 安装依赖
+pnpm build          # 构建所有包
+pnpm test           # 运行测试
+pnpm typecheck      # 类型检查
+pnpm dev            # 开发模式（agent）
+```
 
 ## 许可证
 

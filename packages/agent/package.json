@@ -1,0 +1,33 @@
+{
+  "name": "@cc-lark/agent",
+  "version": "2.0.0",
+  "description": "Local agent for cc-lark-channel — bridges Claude Code to Lark/Feishu",
+  "type": "module",
+  "engines": { "node": ">=22.0.0" },
+  "bin": { "clc": "./dist/index.cjs" },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.cjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.142",
+    "@cc-lark/protocol": "workspace:*",
+    "@larksuiteoapi/node-sdk": "1.64.0",
+    "pino": "^10.3.0",
+    "pino-pretty": "^13.0.0",
+    "smol-toml": "^1.6.0",
+    "ws": "^8.18.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

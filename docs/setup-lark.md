@@ -2,13 +2,64 @@
 
 ## 目录
 
-1. [环境要求](#环境要求)
-2. [飞书应用配置](#飞书应用配置)
-3. [本地部署](#本地部署)
-4. [CI/CD 流水线](#cicd-流水线)
-5. [配置详解](#配置详解)
-6. [验证运行](#验证运行)
-7. [常见问题](#常见问题)
+1. [快速接入（共享 Bot）](#快速接入共享-bot)
+2. [环境要求](#环境要求)
+3. [自有 Bot 部署](#自有-bot-部署)
+4. [Relay 服务部署](#relay-服务部署)
+5. [CI/CD 流水线](#cicd-流水线)
+6. [配置详解](#配置详解)
+7. [验证运行](#验证运行)
+8. [常见问题](#常见问题)
+
+---
+
+## 快速接入（共享 Bot）
+
+最简单的接入方式，无需创建飞书应用，扫码即用。
+
+### 前置条件
+
+- Node.js >= 22
+- Claude Code CLI 已安装并认证（`claude` 命令可用）
+
+### 方式 A：通过 Claude Code Skill（最省事）
+
+安装 Skill 后，对 Claude Code 说"连接飞书"即可：
+
+```bash
+claude plugin install cc-lark-channel
+```
+
+然后在 Claude Code 中：
+```
+帮我连接飞书
+```
+
+Claude Code 会自动完成安装、配对，你只需在飞书中扫码或发送配对码。
+
+### 方式 B：手动安装
+
+```bash
+# 1. 安装
+npm install -g @cc-lark/agent
+
+# 2. 配对（获取 6 位码）
+clc pair --relay wss://relay.cc-lark.dev
+
+# 3. 在飞书中搜索并添加 "cc-lark-channel" Bot
+#    然后发送 6 位配对码完成绑定
+
+# 4. 启动（配对成功后）
+clc --relay wss://relay.cc-lark.dev --token <your-token>
+```
+
+### 后台运行
+
+```bash
+# 使用 pm2 守护
+pm2 start "clc --relay wss://relay.cc-lark.dev --token <token>" --name clc
+pm2 save && pm2 startup
+```
 
 ---
 
@@ -16,10 +67,9 @@
 
 | 依赖 | 版本 | 说明 |
 |------|------|------|
-| Node.js | >= 20 | 运行时 |
+| Node.js | >= 22 | 运行时 |
 | Claude Code CLI | 最新 | `claude` 命令需在 $PATH 中可用 |
-| npm | >= 10 | 包管理 |
-| Docker (可选) | >= 24 | 容器化部署 |
+| npm / pnpm | >= 10 | 包管理 |
 
 确认 Claude Code 已认证：
 
@@ -31,7 +81,11 @@ claude auth login
 
 ---
 
-## 飞书应用配置
+## 自有 Bot 部署
+
+> 以下内容适用于选择自有飞书 Bot 的用户（模式 B）。如果使用共享 Bot，跳过此节。
+
+### 飞书应用配置
 
 ### 第一步：创建企业自建应用
 
@@ -110,7 +164,7 @@ unauthorized_behavior = "reject"
 
 ---
 
-## 本地部署
+### 本地部署
 
 ### 安装
 
@@ -208,6 +262,49 @@ sudo systemctl start cc-lark-channel
 
 # 查看日志
 journalctl -u cc-lark-channel -f
+```
+
+---
+
+## Relay 服务部署
+
+> 仅当你自己托管共享 Bot 时需要。普通用户使用官方 Relay 无需此步骤。
+
+### 环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `LARK_APP_ID` | 共享飞书 Bot 的 App ID |
+| `LARK_APP_SECRET` | 共享飞书 Bot 的 App Secret |
+| `RELAY_PORT` | 监听端口（默认 9000） |
+| `LOG_LEVEL` | 日志级别（默认 info） |
+
+### 部署
+
+```bash
+cd packages/relay
+pnpm install
+pnpm build
+
+# 启动
+LARK_APP_ID=cli_xxx LARK_APP_SECRET=xxx pm2 start dist/index.cjs --name cc-lark-relay
+```
+
+### API
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/pair` | POST | 创建配对码，body: `{ "agentId": "xxx" }` |
+| `/ws` | WebSocket | Agent tunnel 连接端点 |
+| `/health` | GET | 健康检查 |
+
+### 配对流程
+
+```
+Agent → POST /api/pair → 获取 { token, code }
+Agent → WS /ws → 发送 { type: "auth", token }
+用户 → 飞书发送 6 位 code → Relay 关联 open_id 与 Agent
+后续消息按 open_id 路由到对应 tunnel
 ```
 
 ---
