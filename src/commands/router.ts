@@ -192,6 +192,12 @@ export class CommandRouter {
           }
         }
 
+        // Background current session if it has work, then create new session for attach
+        const current = this.sessionManager.getSession(chatId);
+        if (current && current.providerSessionId) {
+          this.sessionManager.backgroundSession(chatId);
+        }
+
         const session = this.sessionManager.getOrCreateSession(chatId);
         session.providerSessionId = sessionId;
         if (attachCwd) {

@@ -103,7 +103,8 @@ export class SessionManager {
 
     if (name) bgSession.name = name;
 
-    const fgSession = this.createSession(chatId);
+    const fgSession = this.createFreshSession(chatId);
+    fgSession.cwd = bgSession.cwd;
     chat.sessions.set(fgSession.id, fgSession);
     chat.foregroundId = fgSession.id;
 
