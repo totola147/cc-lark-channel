@@ -25,7 +25,7 @@ export class CommandRouter {
     const command = spaceIdx === -1 ? text : text.slice(0, spaceIdx);
     const args = spaceIdx === -1 ? "" : text.slice(spaceIdx + 1).trim();
 
-    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/cd", "/bg", "/fg", "/kill", "/help"];
+    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/cd", "/bg", "/fg", "/kill", "/attach", "/help"];
     if (!known.includes(command)) return null;
 
     return { command, args };
@@ -62,7 +62,7 @@ export class CommandRouter {
         }
         const stats = session.getStats();
         const status = [
-          `Session: ${session.name || session.id}`,
+          `Session: ${session.name || session.providerSessionId || "(new)"}`,
           `State: ${session.getState()}`,
           `CWD: ${session.cwd}`,
           `Model: ${session.model || "(default)"}`,
@@ -83,8 +83,9 @@ export class CommandRouter {
         }
         const lines = list.map(s => {
           const marker = s.isForeground ? "▶" : " ";
-          const name = s.name ? `${s.name} (${s.id})` : s.id;
-          return `${marker} ${name} — ${s.state}`;
+          const displayId = s.providerSessionId ?? `(new) ${s.id}`;
+          const name = s.name ? `${s.name}: ` : "";
+          return `${marker} ${name}${displayId} — ${s.state}\n   📂 ${s.cwd}`;
         });
         await this.larkClient.sendText(chatId, lines.join("\n"));
         break;
@@ -111,7 +112,7 @@ export class CommandRouter {
           await this.larkClient.sendText(chatId, `Session "${cmd.args}" not found`);
           break;
         }
-        const label = session.name || session.id;
+        const label = session.name || session.providerSessionId || "(new)";
         await this.larkClient.sendText(chatId, `▶ Session [${label}] is now foreground`);
         break;
       }
@@ -162,7 +163,48 @@ export class CommandRouter {
         const session = this.sessionManager.getOrCreateSession(chatId);
         const cdPath = cmd.args.replace(/^["']|["']$/g, "");
         session.cwd = cdPath;
+        session.providerSessionId = undefined;
         await this.larkClient.sendText(chatId, `CWD → ${cdPath}`);
+        break;
+      }
+
+      case "/attach": {
+        if (!cmd.args) {
+          await this.larkClient.sendText(chatId, "Usage: /attach <session-id> [cwd]\nPaste the session ID from your Claude Code CLI to continue that session here.\nOptionally specify the working directory.");
+          break;
+        }
+        const parts = cmd.args.trim().split(/\s+/);
+        const sessionId = parts[0]!;
+        let attachCwd = parts[1]?.replace(/^["']|["']$/g, "");
+
+        // Auto-detect cwd from Claude's session storage if not provided
+        if (!attachCwd) {
+          const { readdirSync, existsSync } = await import("node:fs");
+          const { homedir } = await import("node:os");
+          const projectsDir = `${homedir()}/.claude/projects`;
+          if (existsSync(projectsDir)) {
+            for (const dir of readdirSync(projectsDir)) {
+              if (existsSync(`${projectsDir}/${dir}/${sessionId}.jsonl`)) {
+                attachCwd = dir.replace(/^-/, "/").replace(/-/g, "/");
+                break;
+              }
+            }
+          }
+        }
+
+        // Background current session if it has work, then create new session for attach
+        const current = this.sessionManager.getSession(chatId);
+        if (current && current.providerSessionId) {
+          this.sessionManager.backgroundSession(chatId);
+        }
+
+        const session = this.sessionManager.getOrCreateSession(chatId);
+        session.providerSessionId = sessionId;
+        if (attachCwd) {
+          session.cwd = attachCwd;
+        }
+        const cwdInfo = attachCwd ? `\nCWD: ${attachCwd}` : "";
+        await this.larkClient.sendText(chatId, `🔗 Attached to session: ${sessionId}${cwdInfo}`);
         break;
       }
     }
@@ -178,6 +220,7 @@ const HELP_TEXT = `cc-lark-channel commands:
 /bg [name] — Move current session to background
 /fg <id> — Bring session to foreground
 /kill <id> — Kill a background session
+/attach <id> — Attach to an existing CLI session
 /mode <mode> — Set permission mode
 /model <name> — Switch model
 /cd <path> — Change working directory
