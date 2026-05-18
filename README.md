@@ -128,6 +128,90 @@ pnpm typecheck      # 类型检查
 pnpm dev            # 开发模式（agent）
 ```
 
+## For AI Agents（自动化安装指南）
+
+> 本节面向 AI coding agent（如 Claude Code、Codex），提供结构化的安装配置步骤。
+> 当用户要求"连接飞书"或"setup lark channel"时，按以下步骤执行。
+
+### 前置检查
+
+```bash
+# 检查 Node.js 版本（需要 >= 22）
+node --version
+
+# 检查 Claude Code CLI 是否可用
+which claude && claude --version
+```
+
+### 模式 A：共享 Bot（推荐，用户无需创建飞书应用）
+
+```bash
+# 1. 安装
+npm install -g @cc-lark/agent
+
+# 2. 配对（向 Relay 申请 6 位码）
+clc pair --relay wss://relay.cc-lark.dev
+
+# 3. 指导用户：在飞书中搜索 "cc-lark-channel" Bot，发送 6 位配对码
+
+# 4. 配对成功后启动（token 保存在 ~/.cc-lark-channel/pairing.json）
+clc --relay wss://relay.cc-lark.dev --token <token>
+
+# 5. 后台运行
+pm2 start "clc --relay wss://relay.cc-lark.dev --token <token>" --name clc
+```
+
+### 模式 B：自有 Bot（用户已有飞书应用凭证）
+
+```bash
+# 1. 安装
+npm install -g @cc-lark/agent
+
+# 2. 创建配置文件
+mkdir -p ~/.cc-lark-channel
+cat > ~/.cc-lark-channel/config.toml << 'EOF'
+[lark]
+app_id = "<ask user for app_id>"
+app_secret = "<ask user for app_secret>"
+
+[claude]
+cli_path = "<output of: which claude>"
+default_cwd = "<user's project directory>"
+EOF
+
+# 3. 启动
+clc --direct --config ~/.cc-lark-channel/config.toml
+
+# 4. 后台运行
+pm2 start "clc --direct --config ~/.cc-lark-channel/config.toml" --name clc
+```
+
+### 接管已有 CLI 会话
+
+```bash
+# 用户提供 session ID（从 Claude Code CLI 退出时显示）
+clc --direct --config ~/.cc-lark-channel/config.toml
+# 然后在飞书中发送: /attach <session-id>
+```
+
+### 验证连接
+
+```bash
+# 检查进程是否在运行
+pm2 list | grep clc
+
+# 检查日志
+pm2 logs clc --lines 5
+```
+
+成功标志：日志中出现 `cc-lark-channel ready — listening for messages`
+
+### 常见问题处理
+
+- **"Claude Code native binary not found"** → `cli_path` 需要绝对路径：`which claude` 获取
+- **"No conversation found"** → session ID 与 cwd 不匹配，用 `/attach` 会自动检测正确路径
+- **飞书无响应** → 检查飞书应用事件订阅是否配置为「长连接」模式，且只有一个订阅源
+
 ## 许可证
 
 MIT
