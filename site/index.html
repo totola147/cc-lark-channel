@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>cc-lark-channel — 飞书 × Claude Code</title>
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --fg: #e8e8e8;
+      --accent: #6c63ff;
+      --muted: #888;
+      --card-bg: #141414;
+      --border: #2a2a2a;
+      --code-bg: #1a1a2e;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.6;
+    }
+    .container { max-width: 800px; margin: 0 auto; padding: 0 24px; }
+
+    /* Hero */
+    .hero {
+      text-align: center;
+      padding: 80px 0 60px;
+    }
+    .hero h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+    .hero h1 span { color: var(--accent); }
+    .hero p {
+      font-size: 1.2rem;
+      color: var(--muted);
+      max-width: 500px;
+      margin: 0 auto;
+    }
+
+    /* Flow */
+    .flow {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+      margin: 40px 0;
+      flex-wrap: wrap;
+    }
+    .flow-step {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 20px;
+      font-size: 0.9rem;
+    }
+    .flow-arrow { color: var(--accent); font-size: 1.2rem; }
+
+    /* Sections */
+    section { padding: 40px 0; }
+    section h2 {
+      font-size: 1.5rem;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+
+    /* Steps */
+    .steps { list-style: none; counter-reset: step; }
+    .steps li {
+      counter-increment: step;
+      margin-bottom: 20px;
+      padding-left: 40px;
+      position: relative;
+    }
+    .steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 28px;
+      height: 28px;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .steps li strong { display: block; margin-bottom: 4px; }
+
+    /* Code */
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 16px;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      margin: 8px 0;
+    }
+    code {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      color: #a8d8a8;
+    }
+    .inline-code {
+      background: var(--code-bg);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 0.85rem;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 0;
+    }
+    .tab {
+      padding: 10px 20px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-bottom: none;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 0.9rem;
+      border-radius: 6px 6px 0 0;
+    }
+    .tab.active {
+      background: var(--code-bg);
+      color: var(--fg);
+      border-color: var(--accent);
+    }
+    .tab-content {
+      display: none;
+      border: 1px solid var(--border);
+      border-radius: 0 6px 6px 6px;
+      padding: 24px;
+      background: var(--card-bg);
+    }
+    .tab-content.active { display: block; }
+
+    /* Commands table */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 0.9rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    th { color: var(--muted); font-weight: 500; }
+
+    /* Agent section */
+    .agent-section {
+      background: var(--card-bg);
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      padding: 24px;
+      margin: 24px 0;
+    }
+    .agent-section h3 {
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 40px 0;
+      color: var(--muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header class="hero">
+    <h1><span>cc-lark-channel</span></h1>
+    <p>通过飞书操控 Claude Code<br>随时随地推进项目开发</p>
+  </header>
+
+  <div class="flow">
+    <div class="flow-step">飞书发消息</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">Claude Code 执行</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">结果回传飞书</div>
+  </div>
+
+  <section>
+    <h2>30 秒接入</h2>
+    <ol class="steps">
+      <li>
+        <strong>安装</strong>
+        <pre><code>npm install -g @cc-lark/agent</code></pre>
+      </li>
+      <li>
+        <strong>配对</strong>
+        <pre><code>clc pair --relay wss://relay.cc-lark.dev</code></pre>
+        获取 6 位配对码
+      </li>
+      <li>
+        <strong>飞书扫码</strong>
+        在飞书中添加 <span class="inline-code">cc-lark-channel</span> Bot，发送配对码
+      </li>
+    </ol>
+    <p style="color: var(--muted); margin-top: 16px;">完成。现在可以在飞书里和 Claude Code 对话了。</p>
+  </section>
+
+  <section>
+    <h2>接入方式</h2>
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab(0)">共享 Bot（推荐）</div>
+      <div class="tab" onclick="switchTab(1)">自有 Bot</div>
+    </div>
+    <div class="tab-content active">
+      <p>零配置，无需创建飞书应用。使用公共 Bot + Relay 中转。</p>
+      <pre><code>npm install -g @cc-lark/agent
+clc pair --relay wss://relay.cc-lark.dev
+# 飞书发送配对码后：
+clc --relay wss://relay.cc-lark.dev --token &lt;token&gt;</code></pre>
+    </div>
+    <div class="tab-content">
+      <p>自建飞书应用，直连 WebSocket，数据不经过第三方。</p>
+      <pre><code>npm install -g @cc-lark/agent
+# 配置 ~/.cc-lark-channel/config.toml（填入 app_id/secret）
+clc --direct --config ~/.cc-lark-channel/config.toml</code></pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>飞书命令</h2>
+    <table>
+      <tr><th>命令</th><th>说明</th></tr>
+      <tr><td><code>/cd &lt;path&gt;</code></td><td>切换工作目录</td></tr>
+      <tr><td><code>/attach &lt;id&gt;</code></td><td>接管 CLI 会话</td></tr>
+      <tr><td><code>/bg [name]</code></td><td>当前任务放后台</td></tr>
+      <tr><td><code>/fg &lt;id&gt;</code></td><td>切回前台</td></tr>
+      <tr><td><code>/sessions</code></td><td>查看所有会话</td></tr>
+      <tr><td><code>/new</code></td><td>新建会话</td></tr>
+      <tr><td><code>/stop</code></td><td>停止生成</td></tr>
+      <tr><td><code>!&lt;text&gt;</code></td><td>中断并执行新指令</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>For AI Agents</h2>
+    <div class="agent-section">
+      <h3>自动化安装（供 AI coding agent 执行）</h3>
+      <pre><code># 检查环境
+node --version  # >= 22
+which claude    # Claude Code CLI 可用
+
+# 安装
+npm install -g @cc-lark/agent
+
+# 模式 A：共享 Bot
+clc pair --relay wss://relay.cc-lark.dev
+# → 告诉用户 6 位码，让用户在飞书发送
+# → 配对成功后：
+clc --relay wss://relay.cc-lark.dev --token &lt;token&gt;
+
+# 模式 B：自有 Bot（用户提供 app_id/secret）
+mkdir -p ~/.cc-lark-channel
+cat > ~/.cc-lark-channel/config.toml &lt;&lt; EOF
+[lark]
+app_id = "&lt;user_app_id&gt;"
+app_secret = "&lt;user_app_secret&gt;"
+[claude]
+cli_path = "$(which claude)"
+default_cwd = "$(pwd)"
+EOF
+clc --direct --config ~/.cc-lark-channel/config.toml
+
+# 后台运行
+pm2 start "clc ..." --name clc
+
+# 验证
+pm2 logs clc --lines 3
+# 成功标志: "cc-lark-channel ready — listening for messages"</code></pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>架构</h2>
+    <pre><code>共享 Bot 模式:
+  飞书 → Cloud Relay → WebSocket tunnel → 本地 clc → Claude Code
+
+自有 Bot 模式:
+  飞书 → 本地 clc → Claude Code（直连）</code></pre>
+    <p style="color: var(--muted); margin-top: 12px;">代码和 API key 始终在用户本地，Relay 只转发消息。</p>
+  </section>
+
+  <footer>
+    <a href="https://github.com/totola147/cc-lark-channel">GitHub</a> · MIT License
+  </footer>
+</div>
+
+<script>
+function switchTab(idx) {
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', i === idx));
+  document.querySelectorAll('.tab-content').forEach((c, i) => c.classList.toggle('active', i === idx));
+}
+</script>
+
+</body>
+</html>
