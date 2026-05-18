@@ -103,7 +103,8 @@ export class SessionManager {
 
     if (name) bgSession.name = name;
 
-    const fgSession = this.createSession(chatId);
+    const fgSession = this.createFreshSession(chatId);
+    fgSession.cwd = bgSession.cwd;
     chat.sessions.set(fgSession.id, fgSession);
     chat.foregroundId = fgSession.id;
 
@@ -115,8 +116,7 @@ export class SessionManager {
     const chat = this.chats.get(chatId);
     if (!chat) return null;
 
-    const target = chat.sessions.get(sessionId)
-      ?? [...chat.sessions.values()].find(s => s.name === sessionId);
+    const target = this.findSession(chat, sessionId);
     if (!target) return null;
 
     chat.foregroundId = target.id;
@@ -128,8 +128,7 @@ export class SessionManager {
     const chat = this.chats.get(chatId);
     if (!chat) return false;
 
-    const target = chat.sessions.get(sessionId)
-      ?? [...chat.sessions.values()].find(s => s.name === sessionId);
+    const target = this.findSession(chat, sessionId);
     if (!target) return false;
     if (target.id === chat.foregroundId) return false;
 
@@ -139,7 +138,7 @@ export class SessionManager {
     return true;
   }
 
-  getSessionList(chatId: string): Array<{ id: string; name?: string; state: string; isForeground: boolean }> {
+  getSessionList(chatId: string): Array<{ id: string; name?: string; state: string; isForeground: boolean; providerSessionId?: string; cwd: string }> {
     const chat = this.chats.get(chatId);
     if (!chat) return [];
 
@@ -148,6 +147,8 @@ export class SessionManager {
       name: s.name,
       state: s.getState(),
       isForeground: s.id === chat.foregroundId,
+      providerSessionId: s.providerSessionId,
+      cwd: s.cwd,
     }));
   }
 
@@ -158,6 +159,12 @@ export class SessionManager {
       }
       this.persistChat(chatId);
     }
+  }
+
+  private findSession(chat: ChatState, identifier: string): ClaudeSession | undefined {
+    return chat.sessions.get(identifier)
+      ?? [...chat.sessions.values()].find(s => s.providerSessionId === identifier)
+      ?? [...chat.sessions.values()].find(s => s.name === identifier);
   }
 
   private createSession(chatId: string): ClaudeSession {
@@ -198,7 +205,7 @@ export class SessionManager {
     session.onTurnComplete = () => {
       const chat = this.chats.get(chatId);
       if (chat && session.id !== chat.foregroundId) {
-        this.larkClient.sendText(chatId, `🔔 Background session [${session.name || session.id}] finished`).catch(() => {});
+        this.larkClient.sendText(chatId, `🔔 Background session [${session.name || session.providerSessionId || session.id}] finished`).catch(() => {});
       }
       this.persistChat(chatId);
     };
