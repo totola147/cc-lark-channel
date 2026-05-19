@@ -2,7 +2,7 @@ import type { Logger } from "../util/logger.js";
 import type { Transport } from "../transport/interface.js";
 import type { PermissionBroker } from "./permission-broker.js";
 import type { AppConfig } from "../config.js";
-import type { IncomingMessage } from "../types.js";
+import type { IncomingMessage, PermissionMode } from "../types.js";
 import type { StateStore } from "../persistence/store.js";
 import { ClaudeSession } from "./session.js";
 
@@ -20,7 +20,43 @@ export class SessionManager {
     private readonly broker: PermissionBroker,
     private readonly transport: Transport,
     private readonly logger: Logger,
-  ) {}
+  ) {
+    this.restoreFromState();
+  }
+
+  private restoreFromState(): void {
+    const chatRecords = this.stateStore.getAllChats();
+    for (const [chatId, chatRecord] of Object.entries(chatRecords)) {
+      if (!chatRecord.sessions || Object.keys(chatRecord.sessions).length === 0) continue;
+      const chat: ChatState = { foregroundId: chatRecord.foregroundId, sessions: new Map() };
+      for (const [, rec] of Object.entries(chatRecord.sessions)) {
+        const session = new ClaudeSession(
+          chatId,
+          this.config,
+          this.transport,
+          this.broker,
+          this.logger.child({ chatId }),
+          rec.cwd ?? this.config.claude.default_cwd,
+          (rec.permissionMode as PermissionMode) ?? this.config.claude.permission_mode,
+          rec.model ?? this.config.claude.default_model,
+        );
+        (session as unknown as { id: string }).id = rec.id;
+        session.providerSessionId = rec.providerSessionId;
+        if (rec.name) session.name = rec.name;
+        this.attachTurnCallback(chatId, session);
+        chat.sessions.set(session.id, session);
+      }
+      if (chat.sessions.size > 0) {
+        if (!chat.sessions.has(chat.foregroundId)) {
+          chat.foregroundId = chat.sessions.keys().next().value!;
+        }
+        this.chats.set(chatId, chat);
+      }
+    }
+    if (this.chats.size > 0) {
+      this.logger.info({ chats: this.chats.size }, "Restored sessions from state");
+    }
+  }
 
   getSession(chatId: string): ClaudeSession | undefined {
     const chat = this.chats.get(chatId);
@@ -207,16 +243,20 @@ export class SessionManager {
   private persistChat(chatId: string): void {
     const chat = this.chats.get(chatId);
     if (!chat) return;
-    const fg = chat.sessions.get(chat.foregroundId);
-    if (!fg) return;
-    this.stateStore.setSession(chatId, {
-      providerSessionId: fg.providerSessionId,
-      cwd: fg.cwd,
-      createdAt: new Date().toISOString(),
-      lastActiveAt: new Date().toISOString(),
-      permissionMode: fg.permissionMode,
-      model: fg.model,
-    });
+    const sessions: Record<string, { id: string; providerSessionId?: string; name?: string; cwd: string; createdAt: string; lastActiveAt: string; permissionMode: string; model: string }> = {};
+    for (const [id, s] of chat.sessions) {
+      sessions[id] = {
+        id: s.id,
+        providerSessionId: s.providerSessionId,
+        name: s.name,
+        cwd: s.cwd,
+        createdAt: new Date().toISOString(),
+        lastActiveAt: new Date().toISOString(),
+        permissionMode: s.permissionMode,
+        model: s.model,
+      };
+    }
+    this.stateStore.setChat(chatId, { foregroundId: chat.foregroundId, sessions });
     this.stateStore.save().catch((err) => {
       this.logger.warn({ err }, "Failed to persist state");
     });
