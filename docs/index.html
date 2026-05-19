@@ -80,13 +80,25 @@ node packages/agent/dist/index.cjs --relay ws://43.153.201.61:9000 --setup</code
 
     <!-- Custom bot: manual input -->
     <div id="mode-custom" class="hidden">
-      <p class="muted">填写你的飞书应用凭证（在飞书开放平台获取）：</p>
-      <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
-        <input type="text" id="custom-app-id" placeholder="App ID (cli_xxx)" style="width: 100%;" />
-        <input type="text" id="custom-app-secret" placeholder="App Secret" style="width: 100%;" />
-      </div>
-      <p class="muted" style="margin-top: 8px;">自有 Bot 模式无需 Relay，Agent 直连飞书。安装命令改为：</p>
-      <pre><code>node packages/agent/dist/index.cjs --direct --config config.toml</code></pre>
+      <p class="muted">自有 Bot 模式无需 Relay，Agent 直连飞书 WebSocket。</p>
+      <p class="muted" style="margin-top: 8px;">前置条件：在<a href="https://open.feishu.cn/" target="_blank" style="color: var(--accent);">飞书开放平台</a>创建企业自建应用，启用机器人能力，配置事件订阅（长连接模式 + im.message.receive_v1 + card.action.trigger）。</p>
+      <p class="muted" style="margin-top: 12px;">在你的 Claude Code 所在机器上执行：</p>
+      <pre><code>git clone -b v2 https://github.com/totola147/cc-lark-channel.git
+cd cc-lark-channel && pnpm install && pnpm build
+
+# 创建配置文件
+cat > config.toml << EOF
+[lark]
+app_id = "你的 App ID"
+app_secret = "你的 App Secret"
+
+[claude]
+cli_path = "$(which claude)"
+default_cwd = "$(pwd)"
+EOF
+
+# 启动并注册服务
+node packages/agent/dist/index.cjs --direct --config config.toml --install-service</code></pre>
     </div>
   </div>
 
