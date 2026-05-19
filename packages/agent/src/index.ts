@@ -22,6 +22,8 @@ function parseArgs() {
     else if (arg === "--open-id" && args[i + 1]) opts["openId"] = args[++i]!;
     else if (arg === "--config" && args[i + 1]) opts["config"] = args[++i]!;
     else if (arg === "--direct") opts["mode"] = "direct";
+    else if (arg === "--daemon") opts["daemon"] = "true";
+    else if (arg === "--foreground") opts["foreground"] = "true";
   }
   return opts;
 }
@@ -77,6 +79,25 @@ async function deviceCodeFlow(relayUrl: string): Promise<string> {
 
 async function main() {
   const opts = parseArgs();
+
+  // Daemon mode: fork to background and exit parent
+  if (opts["daemon"] && !opts["foreground"]) {
+    const { spawn } = await import("node:child_process");
+    const args = process.argv.slice(1).filter(a => a !== "--daemon").concat("--foreground");
+    const child = spawn(process.execPath, args, {
+      detached: true,
+      stdio: "ignore",
+      env: process.env,
+    });
+    child.unref();
+    const pidFile = resolve(homedir(), ".cc-lark-channel/daemon.pid");
+    await mkdir(resolve(homedir(), ".cc-lark-channel"), { recursive: true });
+    await writeFile(pidFile, String(child.pid));
+    console.log(`✅ Agent 已在后台启动 (PID: ${child.pid})`);
+    console.log(`   停止: kill $(cat ~/.cc-lark-channel/daemon.pid)`);
+    process.exit(0);
+  }
+
   const configPath = opts["config"] ?? process.env["CLC_CONFIG"] ?? resolve(process.cwd(), "config.toml");
   const config = await loadConfig(configPath);
   const logger = createLogger(config.logging.level);

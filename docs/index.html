@@ -54,8 +54,8 @@
     <p class="muted">在你的 Claude Code 所在机器上执行：</p>
     <pre><code>git clone https://github.com/totola147/cc-lark-channel.git
 cd cc-lark-channel && npm install && npm run build
-node dist/index.cjs --relay ws://RELAY_HOST:9000</code></pre>
-    <p class="muted" style="margin-top: 12px;">启动后终端会显示 6 位设备码，继续下一步。</p>
+node dist/index.cjs --relay ws://RELAY_HOST:9000 --daemon</code></pre>
+    <p class="muted" style="margin-top: 12px;">首次启动会显示 6 位设备码，配对成功后自动后台运行。</p>
   </div>
 
   <!-- Step 2: Auth -->
