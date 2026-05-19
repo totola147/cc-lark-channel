@@ -19,7 +19,9 @@ export type AgentToRelay =
   | { type: "update_card"; messageId: string; card: FeishuCardV2; requestId: string }
   | { type: "send_image"; chatId: string; imageKey: string; requestId: string }
   | { type: "upload_image"; imageBase64: string; requestId: string }
-  | { type: "download_image"; messageId: string; imageKey: string; requestId: string };
+  | { type: "download_image"; messageId: string; imageKey: string; requestId: string }
+  | { type: "create_group"; name: string; description: string; ownerOpenId: string; requestId: string }
+  | { type: "dissolve_group"; chatId: string; requestId: string };
 
 // --- Relay → Agent (response to upstream requests) ---
 
@@ -29,6 +31,7 @@ export type RelayResponse =
 
 export interface ResponseData {
   messageId?: string;
+  chatId?: string;
   imageKey?: string;
   imageBase64?: string;
 }

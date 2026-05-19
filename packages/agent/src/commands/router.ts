@@ -221,18 +221,22 @@ export class CommandRouter {
           break;
         }
         const wsPath = cmd.args.replace(/^["']|["']$/g, "");
-        const result = await this.workspaceManager.create(wsPath, msg.senderOpenId);
-        if ("error" in result) {
-          await this.transport.sendText(chatId, `❌ ${result.error}`);
-          break;
+        try {
+          const result = await this.workspaceManager.create(wsPath, msg.senderOpenId);
+          if ("error" in result) {
+            await this.transport.sendText(chatId, `❌ ${result.error}`);
+            break;
+          }
+          const latestSession = this.workspaceManager.getLatestSessionId(wsPath);
+          if (latestSession) {
+            const session = this.sessionManager.getOrCreateSession(result.chatId);
+            session.providerSessionId = latestSession;
+            session.cwd = wsPath;
+          }
+          await this.transport.sendText(chatId, `✅ Workspace created: ${result.name}\n📂 ${wsPath}`);
+        } catch (err) {
+          await this.transport.sendText(chatId, `❌ Workspace creation failed: ${(err as Error).message}`);
         }
-        const latestSession = this.workspaceManager.getLatestSessionId(wsPath);
-        if (latestSession) {
-          const session = this.sessionManager.getOrCreateSession(result.chatId);
-          session.providerSessionId = latestSession;
-          session.cwd = wsPath;
-        }
-        await this.transport.sendText(chatId, `✅ Workspace created: ${result.name}\n📂 ${wsPath}`);
         break;
       }
 

@@ -69,13 +69,13 @@ export class RelayTransport implements Transport {
   }
 
   async createGroup(name: string, description: string, ownerOpenId: string): Promise<string> {
-    const res = await this.request({ type: "create_group" as never, name, description, ownerOpenId, requestId: this.newId() } as never);
+    const res = await this.request({ type: "create_group", chatId: "", name, description, ownerOpenId, requestId: this.newId() } as never);
     if (!res.success) throw new Error(res.error);
-    return res.data?.messageId ?? "";
+    return res.data?.chatId ?? "";
   }
 
   async dissolveGroup(chatId: string): Promise<void> {
-    const res = await this.request({ type: "dissolve_group" as never, chatId, requestId: this.newId() } as never);
+    const res = await this.request({ type: "dissolve_group", chatId, requestId: this.newId() } as never);
     if (!res.success) throw new Error(res.error);
   }
 

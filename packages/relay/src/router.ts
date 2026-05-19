@@ -59,6 +59,16 @@ export class Router {
           this.tunnels.sendResponse(agentId, { type: "response", requestId, success: true, data: { imageBase64 } });
           break;
         }
+        case "create_group": {
+          const chatId = await this.larkBot.createGroup(msg.name, msg.description, msg.ownerOpenId);
+          this.tunnels.sendResponse(agentId, { type: "response", requestId, success: true, data: { chatId } });
+          break;
+        }
+        case "dissolve_group": {
+          await this.larkBot.dissolveGroup(msg.chatId);
+          this.tunnels.sendResponse(agentId, { type: "response", requestId, success: true });
+          break;
+        }
         default:
           this.logger.warn({ agentId, type: (msg as { type: string }).type }, "Unknown message type from agent");
       }
