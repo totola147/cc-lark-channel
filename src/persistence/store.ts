@@ -4,7 +4,9 @@ import type { Logger } from "../util/logger.js";
 import type { PermissionMode } from "../types.js";
 
 export interface SessionRecord {
+  id: string;
   providerSessionId?: string;
+  name?: string;
   cwd: string;
   createdAt: string;
   lastActiveAt: string;
@@ -12,12 +14,17 @@ export interface SessionRecord {
   model: string;
 }
 
-export interface StateData {
-  version: 1;
+export interface ChatRecord {
+  foregroundId: string;
   sessions: Record<string, SessionRecord>;
 }
 
-const INITIAL_STATE: StateData = { version: 1, sessions: {} };
+export interface StateData {
+  version: 2;
+  chats: Record<string, ChatRecord>;
+}
+
+const INITIAL_STATE: StateData = { version: 2, chats: {} };
 
 export class StateStore {
   private state: StateData = INITIAL_STATE;
@@ -34,8 +41,13 @@ export class StateStore {
     await mkdir(this.stateDir, { recursive: true });
     try {
       const raw = await readFile(this.filePath, "utf-8");
-      this.state = JSON.parse(raw) as StateData;
-      this.logger.info({ sessions: Object.keys(this.state.sessions).length }, "State loaded");
+      const data = JSON.parse(raw);
+      if (data.version === 2) {
+        this.state = data as StateData;
+      } else {
+        this.state = INITIAL_STATE;
+      }
+      this.logger.info({ chats: Object.keys(this.state.chats).length }, "State loaded");
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         this.state = INITIAL_STATE;
@@ -52,19 +64,37 @@ export class StateStore {
     await rename(tmp, this.filePath);
   }
 
+  getChat(chatId: string): ChatRecord | undefined {
+    return this.state.chats[chatId];
+  }
+
+  setChat(chatId: string, record: ChatRecord): void {
+    this.state.chats[chatId] = record;
+  }
+
+  deleteChat(chatId: string): void {
+    delete this.state.chats[chatId];
+  }
+
+  getAllChats(): Record<string, ChatRecord> {
+    return { ...this.state.chats };
+  }
+
+  // Legacy compat
   getSession(chatId: string): SessionRecord | undefined {
-    return this.state.sessions[chatId];
+    const chat = this.state.chats[chatId];
+    if (!chat) return undefined;
+    return chat.sessions[chat.foregroundId];
   }
 
   setSession(chatId: string, record: SessionRecord): void {
-    this.state.sessions[chatId] = record;
+    if (!this.state.chats[chatId]) {
+      this.state.chats[chatId] = { foregroundId: record.id, sessions: {} };
+    }
+    this.state.chats[chatId]!.sessions[record.id] = record;
   }
 
   deleteSession(chatId: string): void {
-    delete this.state.sessions[chatId];
-  }
-
-  getAllSessions(): Record<string, SessionRecord> {
-    return { ...this.state.sessions };
+    delete this.state.chats[chatId];
   }
 }
