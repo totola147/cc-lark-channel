@@ -34,14 +34,15 @@ jobs:
           rsync -a packages/protocol/dist/ /opt/cc-lark-relay/node_modules/@cc-lark/protocol/dist/
           cp packages/protocol/package.json /opt/cc-lark-relay/node_modules/@cc-lark/protocol/
           cd /opt/cc-lark-relay
-          pnpm install --prod 2>/dev/null || npm install --omit=dev 2>/dev/null || true
+          sed -i '/"@cc-lark\/protocol"/d' package.json
+          npm install --omit=dev
 
       - name: Restart Relay service
         run: |
           cd /opt/cc-lark-relay
           if [ -f .env ]; then set -a && source .env && set +a; fi
           pm2 delete cc-lark-relay 2>/dev/null || true
-          pm2 start dist/index.cjs --name cc-lark-relay
+          pm2 start dist/index.cjs --name cc-lark-relay --update-env
           pm2 save
 
       - name: Health check
