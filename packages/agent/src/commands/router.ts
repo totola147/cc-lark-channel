@@ -83,8 +83,9 @@ export class CommandRouter {
         }
         const lines = list.map(s => {
           const marker = s.isForeground ? "▶" : " ";
-          const name = s.name ? `${s.name} (${s.id})` : s.id;
-          return `${marker} ${name} — ${s.state}`;
+          const displayId = s.providerSessionId ?? `(new) ${s.id}`;
+          const name = s.name ? `${s.name}: ` : "";
+          return `${marker} ${name}${displayId} — ${s.state}\n   📂 ${s.cwd}`;
         });
         await this.transport.sendText(chatId, lines.join("\n"));
         break;

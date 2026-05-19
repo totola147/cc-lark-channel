@@ -175,7 +175,7 @@ export class SessionManager {
     return true;
   }
 
-  getSessionList(chatId: string): Array<{ id: string; name?: string; state: string; isForeground: boolean }> {
+  getSessionList(chatId: string): Array<{ id: string; name?: string; state: string; isForeground: boolean; providerSessionId?: string; cwd: string }> {
     const chat = this.chats.get(chatId);
     if (!chat) return [];
 
@@ -184,6 +184,8 @@ export class SessionManager {
       name: s.name,
       state: s.getState(),
       isForeground: s.id === chat.foregroundId,
+      providerSessionId: s.providerSessionId,
+      cwd: s.cwd,
     }));
   }
 
