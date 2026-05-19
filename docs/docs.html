@@ -31,6 +31,7 @@
     .sticky-nav { position: fixed; top: 0; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); z-index: 100; padding: 12px 24px; display: flex; justify-content: center; gap: 4px; flex-wrap: wrap; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
     .sticky-nav a { color: var(--muted); text-decoration: none; font-size: 0.82rem; padding: 4px 10px; border-radius: 4px; transition: all 0.2s; white-space: nowrap; }
     .sticky-nav a:hover { color: var(--accent); background: var(--card-bg); }
+    .sticky-nav a.active { color: var(--accent); background: var(--card-bg); font-weight: 600; }
   </style>
 </head>
 <body>
@@ -209,6 +210,25 @@ node packages/agent/dist/index.cjs --install-service</code></pre>
     <a href="/">首页</a> · MIT License
   </footer>
 </div>
+
+<script>
+  const sections = document.querySelectorAll('h2[id]');
+  const navLinks = document.querySelectorAll('.sticky-nav a');
+
+  function updateActive() {
+    let current = '';
+    for (const section of sections) {
+      const top = section.getBoundingClientRect().top;
+      if (top <= 80) current = section.id;
+    }
+    navLinks.forEach(link => {
+      link.classList.toggle('active', link.getAttribute('href') === '#' + current);
+    });
+  }
+
+  window.addEventListener('scroll', updateActive, { passive: true });
+  updateActive();
+</script>
 
 </body>
 </html>
