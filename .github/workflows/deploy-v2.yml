@@ -28,10 +28,11 @@ jobs:
 
       - name: Deploy Relay
         run: |
-          sudo mkdir -p /opt/cc-lark-relay
-          sudo chown $(whoami) /opt/cc-lark-relay
+          sudo mkdir -p /opt/cc-lark-relay/node_modules/@cc-lark/protocol
+          sudo chown -R $(whoami) /opt/cc-lark-relay
           rsync -a --exclude='node_modules' --exclude='.git' --exclude='.env' packages/relay/ /opt/cc-lark-relay/
           rsync -a packages/protocol/dist/ /opt/cc-lark-relay/node_modules/@cc-lark/protocol/dist/
+          cp packages/protocol/package.json /opt/cc-lark-relay/node_modules/@cc-lark/protocol/
           cd /opt/cc-lark-relay
           pnpm install --prod 2>/dev/null || npm install --omit=dev 2>/dev/null || true
 
