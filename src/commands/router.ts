@@ -25,7 +25,7 @@ export class CommandRouter {
     const command = spaceIdx === -1 ? text : text.slice(0, spaceIdx);
     const args = spaceIdx === -1 ? "" : text.slice(spaceIdx + 1).trim();
 
-    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/cd", "/bg", "/fg", "/kill", "/attach", "/help"];
+    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/cd", "/bg", "/fg", "/kill", "/attach", "/update", "/help"];
     if (!known.includes(command)) return null;
 
     return { command, args };
@@ -212,6 +212,20 @@ export class CommandRouter {
         await this.larkClient.sendText(chatId, `🔗 Attached to session: ${sessionId}${cwdInfo}`);
         break;
       }
+
+      case "/update": {
+        await this.larkClient.sendText(chatId, "🔄 Updating...");
+        try {
+          const { execSync } = await import("node:child_process");
+          const cwd = process.cwd();
+          const output = execSync("git pull && npm run build", { cwd, encoding: "utf-8", timeout: 60000 });
+          await this.larkClient.sendText(chatId, `✅ Updated. Restarting...\n${output.slice(-200)}`);
+          setTimeout(() => { process.exit(0); }, 1000);
+        } catch (err) {
+          await this.larkClient.sendText(chatId, `❌ Update failed: ${(err as Error).message.slice(0, 200)}`);
+        }
+        break;
+      }
     }
   }
 }
@@ -226,6 +240,8 @@ const HELP_TEXT = `cc-lark-channel commands:
 /fg <id> — Bring session to foreground
 /kill <id> — Kill a background session
 /attach <id> — Attach to an existing CLI session
+/update — Pull latest code and restart
+/kill all — Kill all sessions
 /mode <mode> — Set permission mode
 /model <name> — Switch model
 /cd <path> — Change working directory
