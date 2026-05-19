@@ -12,6 +12,8 @@ export interface Transport {
   sendImage(chatId: string, imageKey: string): Promise<string>;
   uploadImage(imageBuffer: Buffer): Promise<string>;
   downloadImage(messageId: string, imageKey: string): Promise<Buffer>;
+  createGroup(name: string, description: string, ownerOpenId: string): Promise<string>;
+  dissolveGroup(chatId: string): Promise<void>;
 }
 
 export interface TransportEvents {

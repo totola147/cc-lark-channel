@@ -22,6 +22,16 @@ export interface ChatRecord {
 export interface StateData {
   version: 2;
   chats: Record<string, ChatRecord>;
+  workspaces?: Record<string, WorkspaceRecord>;
+}
+
+export interface WorkspaceRecord {
+  chatId: string;
+  path: string;
+  name: string;
+  description: string;
+  createdAt: string;
+  ownerOpenId: string;
 }
 
 const INITIAL_STATE: StateData = { version: 2, chats: {} };
@@ -97,5 +107,22 @@ export class StateStore {
 
   getAllChats(): Record<string, ChatRecord> {
     return { ...this.state.chats };
+  }
+
+  getWorkspace(chatId: string): WorkspaceRecord | undefined {
+    return this.state.workspaces?.[chatId];
+  }
+
+  setWorkspace(chatId: string, record: WorkspaceRecord): void {
+    if (!this.state.workspaces) this.state.workspaces = {};
+    this.state.workspaces[chatId] = record;
+  }
+
+  deleteWorkspace(chatId: string): void {
+    if (this.state.workspaces) delete this.state.workspaces[chatId];
+  }
+
+  getAllWorkspaces(): Record<string, WorkspaceRecord> {
+    return { ...(this.state.workspaces ?? {}) };
   }
 }

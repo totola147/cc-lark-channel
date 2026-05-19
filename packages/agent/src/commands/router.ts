@@ -1,5 +1,6 @@
 import type { Transport } from "../transport/interface.js";
 import type { SessionManager } from "../claude/session-manager.js";
+import type { WorkspaceManager } from "../workspace/manager.js";
 import type { AppConfig } from "../config.js";
 import type { IncomingMessage, PermissionMode } from "../types.js";
 import type { Logger } from "../util/logger.js";
@@ -14,6 +15,7 @@ export class CommandRouter {
     private readonly sessionManager: SessionManager,
     private readonly transport: Transport,
     private readonly config: AppConfig,
+    private readonly workspaceManager: WorkspaceManager,
     _logger: Logger,
   ) {}
 
@@ -25,7 +27,7 @@ export class CommandRouter {
     const command = spaceIdx === -1 ? text : text.slice(0, spaceIdx);
     const args = spaceIdx === -1 ? "" : text.slice(spaceIdx + 1).trim();
 
-    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/cd", "/bg", "/fg", "/kill", "/attach", "/update", "/help"];
+    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/cd", "/bg", "/fg", "/kill", "/attach", "/update", "/workspace", "/workspaces", "/close", "/help"];
     if (!known.includes(command)) return null;
 
     return { command, args };
@@ -210,6 +212,52 @@ export class CommandRouter {
         }
         const cwdInfo = attachCwd ? `\nCWD: ${attachCwd}` : "";
         await this.transport.sendText(chatId, `🔗 Attached to session: ${sessionId}${cwdInfo}`);
+        break;
+      }
+
+      case "/workspace": {
+        if (!cmd.args) {
+          await this.transport.sendText(chatId, "Usage: /workspace <path>\nCreate a workspace group for a project.");
+          break;
+        }
+        const wsPath = cmd.args.replace(/^["']|["']$/g, "");
+        const result = await this.workspaceManager.create(wsPath, msg.senderOpenId);
+        if ("error" in result) {
+          await this.transport.sendText(chatId, `❌ ${result.error}`);
+          break;
+        }
+        const latestSession = this.workspaceManager.getLatestSessionId(wsPath);
+        if (latestSession) {
+          const session = this.sessionManager.getOrCreateSession(result.chatId);
+          session.providerSessionId = latestSession;
+          session.cwd = wsPath;
+        }
+        await this.transport.sendText(chatId, `✅ Workspace created: ${result.name}\n📂 ${wsPath}`);
+        break;
+      }
+
+      case "/workspaces": {
+        const workspaces = this.workspaceManager.list(msg.senderOpenId);
+        if (workspaces.length === 0) {
+          await this.transport.sendText(chatId, "No workspaces. Use /workspace <path> to create one.");
+          break;
+        }
+        const lines = workspaces.map(w => `• ${w.name}\n  📂 ${w.path}`);
+        await this.transport.sendText(chatId, `Workspaces (${workspaces.length}/20):\n${lines.join("\n")}`);
+        break;
+      }
+
+      case "/close": {
+        if (!this.workspaceManager.isWorkspaceChat(chatId)) {
+          await this.transport.sendText(chatId, "❌ /close can only be used in a workspace group");
+          break;
+        }
+        const closed = await this.workspaceManager.close(chatId);
+        if (closed) {
+          await this.transport.sendText(chatId, "🗑 Workspace closing...");
+        } else {
+          await this.transport.sendText(chatId, "❌ Failed to close workspace");
+        }
         break;
       }
 

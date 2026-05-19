@@ -10,6 +10,7 @@ import { SessionManager } from "./claude/session-manager.js";
 import { StateStore } from "./persistence/store.js";
 import { CommandRouter } from "./commands/router.js";
 import { PermissionBroker } from "./claude/permission-broker.js";
+import { WorkspaceManager } from "./workspace/manager.js";
 
 const TOKEN_PATH = resolve(homedir(), ".cc-lark-channel/relay.json");
 
@@ -258,8 +259,9 @@ async function main() {
   }
 
   const permissionBroker = new PermissionBroker(config.claude, transport, logger);
+  const workspaceManager = new WorkspaceManager(transport, stateStore, logger);
   const sessionManager = new SessionManager(config, stateStore, permissionBroker, transport, logger);
-  const commandRouter = new CommandRouter(sessionManager, transport, config, logger);
+  const commandRouter = new CommandRouter(sessionManager, transport, config, workspaceManager, logger);
 
   transport.setEvents({
     onMessage: async (msg) => {
