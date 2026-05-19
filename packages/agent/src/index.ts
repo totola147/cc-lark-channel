@@ -25,6 +25,7 @@ function parseArgs() {
     else if (arg === "--daemon") opts["daemon"] = "true";
     else if (arg === "--foreground") opts["foreground"] = "true";
     else if (arg === "--install-service") opts["installService"] = "true";
+    else if (arg === "--setup") opts["setup"] = "true";
   }
   return opts;
 }
@@ -210,6 +211,13 @@ async function main() {
 
     // Save for next time
     await saveRelay(relayUrl, openId);
+
+    // Setup mode: pair + install service, then exit
+    if (opts["setup"]) {
+      console.log("\n配对完成，正在注册系统服务...\n");
+      await installService();
+      process.exit(0);
+    }
 
     logger.info({ relayUrl, openId }, "cc-lark-channel starting (relay mode)");
     transport = new RelayTransport({ relayUrl, openId }, logger);
