@@ -11,6 +11,16 @@ import { PermissionBroker } from "./claude/permission-broker.js";
 const CONFIG_PATH = process.env["CLC_CONFIG"] ?? resolve(process.cwd(), "config.toml");
 
 async function main() {
+  // Auto-update on startup
+  try {
+    const { execSync } = await import("node:child_process");
+    const result = execSync("git pull", { cwd: process.cwd(), encoding: "utf-8", timeout: 30000 });
+    if (!result.includes("Already up to date")) {
+      execSync("npm run build", { cwd: process.cwd(), encoding: "utf-8", timeout: 60000 });
+      console.log("✅ Auto-updated to latest version");
+    }
+  } catch {}
+
   const config = await loadConfig(CONFIG_PATH);
   const logger = createLogger(config.logging.level);
 
