@@ -8,11 +8,11 @@
     :root { --bg: #ffffff; --fg: #1a1a1a; --accent: #6c63ff; --muted: #666; --card-bg: #f8f8f8; --border: #e0e0e0; --code-bg: #f5f5f7; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.8; min-height: 100vh; }
-    .container { max-width: 760px; margin: 0 auto; padding: 40px 24px; }
+    .container { max-width: 760px; margin: 0 auto; padding: 40px 24px; padding-top: 72px; }
     h1 { font-size: 1.8rem; margin-bottom: 8px; }
     h1 a { color: var(--accent); text-decoration: none; }
     .subtitle { color: var(--muted); margin-bottom: 32px; }
-    h2 { font-size: 1.3rem; margin: 32px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+    h2 { font-size: 1.3rem; margin: 32px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); scroll-margin-top: 60px; }
     h3 { font-size: 1.1rem; margin: 20px 0 8px; }
     p { margin-bottom: 12px; }
     ul, ol { margin: 8px 0 16px 24px; }
@@ -28,15 +28,30 @@
     footer { text-align: center; padding: 40px 0; color: var(--muted); font-size: 0.85rem; }
     footer a { color: var(--accent); text-decoration: none; }
     a { color: var(--accent); }
+    .sticky-nav { position: fixed; top: 0; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); z-index: 100; padding: 12px 24px; display: flex; justify-content: center; gap: 4px; flex-wrap: wrap; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+    .sticky-nav a { color: var(--muted); text-decoration: none; font-size: 0.82rem; padding: 4px 10px; border-radius: 4px; transition: all 0.2s; white-space: nowrap; }
+    .sticky-nav a:hover { color: var(--accent); background: var(--card-bg); }
   </style>
 </head>
 <body>
+
+<nav class="sticky-nav">
+  <a href="#features">特性</a>
+  <a href="#philosophy">设计理念</a>
+  <a href="#architecture">架构</a>
+  <a href="#quickstart">快速开始</a>
+  <a href="#commands">命令列表</a>
+  <a href="#workspace">工作区群组</a>
+  <a href="#permissions">权限模式</a>
+  <a href="#update">自动更新</a>
+  <a href="#troubleshooting">故障排查</a>
+</nav>
 
 <div class="container">
   <h1><a href="/">cc-lark-channel</a> 使用文档</h1>
   <p class="subtitle">通过飞书远程操控 Claude Code，随时随地推进项目开发</p>
 
-  <h2>特性</h2>
+  <h2 id="features">特性</h2>
   <ul>
     <li><strong>双模式接入</strong> — 公共 Bot（零配置扫码）或自有 Bot（企业私有化）</li>
     <li><strong>OAuth + 设备码配对</strong> — 安全便捷的接入流程</li>
@@ -52,7 +67,7 @@
     <li><strong>系统服务</strong> — 一键注册 systemd，开机自启</li>
   </ul>
 
-  <h2>设计理念</h2>
+  <h2 id="philosophy">设计理念</h2>
   <p>cc-lark-channel 提供两种开发模式，对应不同的工作场景：</p>
 
   <h3>Spec 模式 — 工作区群组（群聊）</h3>
@@ -77,14 +92,14 @@
 
   <p>两种模式互补：用私聊快速验证想法，确定方向后创建工作区群组持续推进。</p>
 
-  <h2>架构</h2>
+  <h2 id="architecture">架构</h2>
   <div class="arch">公共 Bot 模式:
   飞书用户 → 公共 Bot → Cloud Relay (WebSocket) → 本地 Agent → Claude Code
 
 自有 Bot 模式:
   飞书用户 → 自有 Bot → 本地 Agent → Claude Code（直连）</div>
 
-  <h2>快速开始</h2>
+  <h2 id="quickstart">快速开始</h2>
 
   <h3>方式一：公共 Bot<span class="badge">推荐</span></h3>
   <p>在 Claude Code 所在机器上执行：</p>
@@ -129,7 +144,7 @@ node packages/agent/dist/index.cjs --direct --config config.toml
 # 注册系统服务（可选）
 node packages/agent/dist/index.cjs --install-service</code></pre>
 
-  <h2>命令列表</h2>
+  <h2 id="commands">命令列表</h2>
   <table>
     <tr><th>命令</th><th>说明</th></tr>
     <tr><td><code>/new</code></td><td>开始新会话</td></tr>
@@ -159,7 +174,7 @@ node packages/agent/dist/index.cjs --install-service</code></pre>
     <tr><td>图片</td><td>下载后以 base64 发送给 Claude 分析</td></tr>
   </table>
 
-  <h2>工作区群组</h2>
+  <h2 id="workspace">工作区群组</h2>
   <p>每个项目可以创建独立的飞书群作为工作区，群内拥有独立的会话池：</p>
   <ul>
     <li>私聊中发送 <code>/workspace /path/to/project</code> 创建群组</li>
@@ -169,7 +184,7 @@ node packages/agent/dist/index.cjs --install-service</code></pre>
     <li>群内发送 <code>/close</code> 解散群组</li>
   </ul>
 
-  <h2>权限模式</h2>
+  <h2 id="permissions">权限模式</h2>
   <table>
     <tr><th>模式</th><th>行为</th></tr>
     <tr><td><code>default</code></td><td>所有工具调用需要审批（发送卡片）</td></tr>
@@ -177,10 +192,10 @@ node packages/agent/dist/index.cjs --install-service</code></pre>
     <tr><td><code>bypassPermissions</code></td><td>所有操作自动通过（谨慎使用）</td></tr>
   </table>
 
-  <h2>自动更新</h2>
+  <h2 id="update">自动更新</h2>
   <p>Agent 启动时自动检查更新（git pull + rebuild）。也可以随时在飞书中发送 <code>/update</code> 手动触发。</p>
 
-  <h2>故障排查</h2>
+  <h2 id="troubleshooting">故障排查</h2>
   <table>
     <tr><th>问题</th><th>解决方案</th></tr>
     <tr><td>Claude Code native binary not found</td><td><code>cli_path</code> 需要绝对路径，执行 <code>which claude</code> 获取</td></tr>
