@@ -56,6 +56,14 @@ async function installService(): Promise<void> {
     k.startsWith("ANTHROPIC_") || k.startsWith("CLAUDE_") || k === "CLC_CONFIG" || k === "CLC_CLAUDE_CLI_PATH"
   );
 
+  // Always include PATH and HOME for systemd
+  if (process.env["PATH"] && !ccEnvKeys.includes("PATH")) {
+    ccEnvKeys.push("PATH");
+  }
+  if (process.env["HOME"] && !ccEnvKeys.includes("HOME")) {
+    ccEnvKeys.push("HOME");
+  }
+
   // Auto-detect claude path and add to env if not already set
   const { execSync: execSyncSvc } = await import("node:child_process");
   if (!process.env["CLC_CLAUDE_CLI_PATH"]) {
