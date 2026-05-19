@@ -52,6 +52,31 @@
     <li><strong>系统服务</strong> — 一键注册 systemd，开机自启</li>
   </ul>
 
+  <h2>设计理念</h2>
+  <p>cc-lark-channel 提供两种开发模式，对应不同的工作场景：</p>
+
+  <h3>Spec 模式 — 工作区群组（群聊）</h3>
+  <p>每个项目一个飞书群，适合<strong>结构化、目标明确的开发任务</strong>。</p>
+  <ul>
+    <li>一个群 = 一个项目，天然隔离上下文</li>
+    <li>独立的会话池：前台会话处理当前任务，后台会话并行跑长任务</li>
+    <li>群名自动从项目元数据（package.json 等）读取，一目了然</li>
+    <li>适合：功能开发、bug 修复、代码审查、持续迭代</li>
+    <li>思路：像写 spec 一样明确目标，Claude 按计划执行</li>
+  </ul>
+
+  <h3>Vibe 模式 — 私聊</h3>
+  <p>直接在私聊中与 Claude Code 对话，适合<strong>自由探索、快速实验</strong>。</p>
+  <ul>
+    <li>无需预设项目，随时切换目录（<code>/cd</code>）</li>
+    <li>快速原型、一次性脚本、跨项目操作</li>
+    <li>想到什么做什么，不需要提前规划</li>
+    <li>适合：探索想法、快速验证、临时任务、学习实验</li>
+    <li>思路：像 vibe coding 一样跟着感觉走，Claude 即时响应</li>
+  </ul>
+
+  <p>两种模式互补：用私聊快速验证想法，确定方向后创建工作区群组持续推进。</p>
+
   <h2>架构</h2>
   <div class="arch">公共 Bot 模式:
   飞书用户 → 公共 Bot → Cloud Relay (WebSocket) → 本地 Agent → Claude Code
