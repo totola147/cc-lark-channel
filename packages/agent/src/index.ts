@@ -99,7 +99,7 @@ Type=simple
 User=${process.env["USER"] ?? "ubuntu"}
 WorkingDirectory=${process.cwd()}
 ExecStart=${process.execPath} ${actualScript} --foreground
-Restart=on-failure
+Restart=always
 RestartSec=5
 ${envLines}
 
