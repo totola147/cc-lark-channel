@@ -151,8 +151,7 @@ export class SessionManager {
     const chat = this.chats.get(chatId);
     if (!chat) return null;
 
-    const target = chat.sessions.get(sessionId)
-      ?? [...chat.sessions.values()].find(s => s.name === sessionId);
+    const target = this.findSession(chat, sessionId);
     if (!target) return null;
 
     chat.foregroundId = target.id;
@@ -164,8 +163,7 @@ export class SessionManager {
     const chat = this.chats.get(chatId);
     if (!chat) return false;
 
-    const target = chat.sessions.get(sessionId)
-      ?? [...chat.sessions.values()].find(s => s.name === sessionId);
+    const target = this.findSession(chat, sessionId);
     if (!target) return false;
     if (target.id === chat.foregroundId) return false;
 
@@ -196,6 +194,12 @@ export class SessionManager {
       }
       this.persistChat(chatId);
     }
+  }
+
+  private findSession(chat: ChatState, identifier: string): ClaudeSession | undefined {
+    return chat.sessions.get(identifier)
+      ?? [...chat.sessions.values()].find(s => s.providerSessionId === identifier)
+      ?? [...chat.sessions.values()].find(s => s.name === identifier);
   }
 
   private createSession(chatId: string): ClaudeSession {

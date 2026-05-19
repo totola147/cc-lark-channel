@@ -62,7 +62,7 @@ export class CommandRouter {
         }
         const stats = session.getStats();
         const status = [
-          `Session: ${session.name || session.id}`,
+          `Session: ${session.name || session.providerSessionId || "(new)"}`,
           `State: ${session.getState()}`,
           `CWD: ${session.cwd}`,
           `Model: ${session.model || "(default)"}`,
@@ -97,7 +97,7 @@ export class CommandRouter {
           await this.transport.sendText(chatId, "No active session to background");
           break;
         }
-        const label = result.bgSession.name || result.bgSession.id;
+        const label = result.bgSession.name || result.bgSession.providerSessionId || "(new)";
         await this.transport.sendText(chatId, `⏸ Session [${label}] moved to background\n🆕 New foreground session ready`);
         break;
       }
@@ -112,7 +112,7 @@ export class CommandRouter {
           await this.transport.sendText(chatId, `Session "${cmd.args}" not found`);
           break;
         }
-        const label = session.name || session.id;
+        const label = session.name || session.providerSessionId || "(new)";
         await this.transport.sendText(chatId, `▶ Session [${label}] is now foreground`);
         break;
       }
@@ -170,12 +170,41 @@ export class CommandRouter {
 
       case "/attach": {
         if (!cmd.args) {
-          await this.transport.sendText(chatId, "Usage: /attach <session-id>\nPaste the session ID from your Claude Code CLI to continue that session here.");
+          await this.transport.sendText(chatId, "Usage: /attach <session-id> [cwd]\nPaste the session ID from your Claude Code CLI to continue that session here.");
           break;
         }
-        const session = this.sessionManager.getOrCreateSession(chatId);
-        session.providerSessionId = cmd.args.trim();
-        await this.transport.sendText(chatId, `🔗 Attached to session: ${cmd.args.trim()}\nNext message will continue that session.`);
+        const parts = cmd.args.trim().split(/\s+/);
+        const sessionId = parts[0]!;
+        let attachCwd = parts[1]?.replace(/^["']|["']$/g, "");
+
+        // Auto-detect cwd from Claude's session storage if not provided
+        if (!attachCwd) {
+          const { readdirSync, existsSync } = await import("node:fs");
+          const { homedir } = await import("node:os");
+          const projectsDir = `${homedir()}/.claude/projects`;
+          if (existsSync(projectsDir)) {
+            for (const dir of readdirSync(projectsDir)) {
+              if (existsSync(`${projectsDir}/${dir}/${sessionId}.jsonl`)) {
+                attachCwd = dir.replace(/^-/, "/").replace(/-/g, "/");
+                break;
+              }
+            }
+          }
+        }
+
+        // Background current session if it has work
+        const currentSession = this.sessionManager.getSession(chatId);
+        if (currentSession && currentSession.providerSessionId) {
+          this.sessionManager.backgroundSession(chatId);
+        }
+
+        const attachSession = this.sessionManager.getOrCreateSession(chatId);
+        attachSession.providerSessionId = sessionId;
+        if (attachCwd) {
+          attachSession.cwd = attachCwd;
+        }
+        const cwdInfo = attachCwd ? `\nCWD: ${attachCwd}` : "";
+        await this.transport.sendText(chatId, `🔗 Attached to session: ${sessionId}${cwdInfo}`);
         break;
       }
     }
