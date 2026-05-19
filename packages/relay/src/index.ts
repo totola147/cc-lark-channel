@@ -131,6 +131,20 @@ async function main() {
       return;
     }
 
+    // Serve docs page
+    if (req.method === "GET" && url.pathname === "/docs.html") {
+      const { readFile } = await import("node:fs/promises");
+      const { join } = await import("node:path");
+      try {
+        const html = await readFile(join(__dirname, "../docs/docs.html"), "utf-8");
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(html);
+      } catch {
+        res.writeHead(404); res.end("Docs not found");
+      }
+      return;
+    }
+
     res.writeHead(404); res.end("Not found");
   });
 

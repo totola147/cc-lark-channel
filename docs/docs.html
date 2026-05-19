@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>使用文档 — cc-lark-channel</title>
+  <style>
+    :root { --bg: #ffffff; --fg: #1a1a1a; --accent: #6c63ff; --muted: #666; --card-bg: #f8f8f8; --border: #e0e0e0; --code-bg: #f5f5f7; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.8; min-height: 100vh; }
+    .container { max-width: 760px; margin: 0 auto; padding: 40px 24px; }
+    h1 { font-size: 1.8rem; margin-bottom: 8px; }
+    h1 a { color: var(--accent); text-decoration: none; }
+    .subtitle { color: var(--muted); margin-bottom: 32px; }
+    h2 { font-size: 1.3rem; margin: 32px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+    h3 { font-size: 1.1rem; margin: 20px 0 8px; }
+    p { margin-bottom: 12px; }
+    ul, ol { margin: 8px 0 16px 24px; }
+    li { margin-bottom: 4px; }
+    pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 14px; overflow-x: auto; font-size: 0.85rem; margin: 8px 0 16px; }
+    code { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+    p code, li code, td code { background: var(--code-bg); padding: 2px 6px; border-radius: 3px; font-size: 0.88rem; }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 0.92rem; }
+    th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+    th { background: var(--card-bg); font-weight: 600; }
+    .arch { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0 20px; font-family: monospace; font-size: 0.85rem; white-space: pre; overflow-x: auto; line-height: 1.5; }
+    .badge { display: inline-block; background: var(--accent); color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; margin-left: 8px; vertical-align: middle; }
+    footer { text-align: center; padding: 40px 0; color: var(--muted); font-size: 0.85rem; }
+    footer a { color: var(--accent); text-decoration: none; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1><a href="/">cc-lark-channel</a> 使用文档</h1>
+  <p class="subtitle">通过飞书远程操控 Claude Code，随时随地推进项目开发</p>
+
+  <h2>特性</h2>
+  <ul>
+    <li><strong>双模式接入</strong> — 公共 Bot（零配置扫码）或自有 Bot（企业私有化）</li>
+    <li><strong>OAuth + 设备码配对</strong> — 安全便捷的接入流程</li>
+    <li><strong>交互式审批卡片</strong> — 工具调用时发送按钮卡片，手机点一下即可审批</li>
+    <li><strong>流式状态卡片</strong> — 实时展示 thinking、工具调用、输出，原地更新不刷屏</li>
+    <li><strong>后台会话</strong> — 长任务放后台继续跑，切到新会话继续工作</li>
+    <li><strong>工作区群组</strong> — 每个项目一个飞书群，独立会话池</li>
+    <li><strong>消息队列</strong> — 生成中发送的消息自动排队，空闲后依次执行</li>
+    <li><strong>中断机制</strong> — <code>!</code> 前缀中断当前任务，<code>/stop</code> 停止生成</li>
+    <li><strong>会话接管</strong> — <code>/attach</code> 接管已有 CLI 会话</li>
+    <li><strong>图片支持</strong> — 发截图给 Claude 分析</li>
+    <li><strong>零公网 IP</strong> — 用户侧无需开放端口</li>
+    <li><strong>系统服务</strong> — 一键注册 systemd，开机自启</li>
+  </ul>
+
+  <h2>架构</h2>
+  <div class="arch">公共 Bot 模式:
+  飞书用户 → 公共 Bot → Cloud Relay (WebSocket) → 本地 Agent → Claude Code
+
+自有 Bot 模式:
+  飞书用户 → 自有 Bot → 本地 Agent → Claude Code（直连）</div>
+
+  <h2>快速开始</h2>
+
+  <h3>方式一：公共 Bot<span class="badge">推荐</span></h3>
+  <p>在 Claude Code 所在机器上执行：</p>
+  <pre><code># 1. 克隆并构建（需要 Node.js >= 22 + pnpm）
+git clone -b v2 https://github.com/totola147/cc-lark-channel.git
+cd cc-lark-channel && pnpm install && pnpm build
+
+# 2. 首次启动（交互式配对）
+node packages/agent/dist/index.cjs --setup</code></pre>
+
+  <p>配对流程：</p>
+  <ol>
+    <li>终端显示 6 位设备码</li>
+    <li>访问 Landing Page，点击「飞书 OAuth 登录」</li>
+    <li>输入设备码，点击「确认配对」</li>
+    <li>自动注册 systemd 服务，开机自启</li>
+  </ol>
+
+  <h3>方式二：自有 Bot</h3>
+  <p>适合企业/隐私需求，需要自己创建飞书应用。</p>
+
+  <p><strong>飞书应用配置：</strong></p>
+  <ol>
+    <li>在 <a href="https://open.feishu.cn/" target="_blank">飞书开放平台</a> 创建企业自建应用</li>
+    <li>启用「机器人」能力</li>
+    <li>添加权限：<code>im:message.p2p_msg:readonly</code>、<code>im:message:send_as_bot</code>、<code>im:resource</code>、<code>im:message:update</code></li>
+    <li>事件订阅（长连接模式）：<code>im.message.receive_v1</code>、<code>card.action.trigger</code></li>
+    <li>发布应用</li>
+  </ol>
+
+  <pre><code># 克隆并构建
+git clone -b v2 https://github.com/totola147/cc-lark-channel.git
+cd cc-lark-channel && pnpm install && pnpm build
+
+# 配置
+cp config.example.toml config.toml
+# 编辑 config.toml 填入 app_id / app_secret
+
+# 启动
+node packages/agent/dist/index.cjs --direct --config config.toml
+
+# 注册系统服务（可选）
+node packages/agent/dist/index.cjs --install-service</code></pre>
+
+  <h2>命令列表</h2>
+  <table>
+    <tr><th>命令</th><th>说明</th></tr>
+    <tr><td><code>/new</code></td><td>开始新会话</td></tr>
+    <tr><td><code>/stop</code></td><td>停止当前生成</td></tr>
+    <tr><td><code>/status</code></td><td>查看会话状态（模型、token、队列等）</td></tr>
+    <tr><td><code>/sessions</code></td><td>列出所有会话（前台/后台）</td></tr>
+    <tr><td><code>/bg [name]</code></td><td>将当前会话移到后台继续执行</td></tr>
+    <tr><td><code>/fg &lt;id&gt;</code></td><td>将后台会话切到前台</td></tr>
+    <tr><td><code>/kill &lt;id&gt;</code></td><td>终止后台会话</td></tr>
+    <tr><td><code>/kill all</code></td><td>终止所有会话</td></tr>
+    <tr><td><code>/attach &lt;id&gt;</code></td><td>接管已有 CLI 会话</td></tr>
+    <tr><td><code>/cd &lt;path&gt;</code></td><td>切换工作目录（启动新会话）</td></tr>
+    <tr><td><code>/workspace &lt;path&gt;</code></td><td>为项目创建飞书群组工作区</td></tr>
+    <tr><td><code>/workspaces</code></td><td>列出所有工作区</td></tr>
+    <tr><td><code>/close</code></td><td>关闭当前工作区群组</td></tr>
+    <tr><td><code>/mode &lt;mode&gt;</code></td><td>切换权限模式（default / acceptEdits / bypassPermissions）</td></tr>
+    <tr><td><code>/model &lt;name&gt;</code></td><td>切换模型</td></tr>
+    <tr><td><code>/update</code></td><td>拉取最新代码并重启</td></tr>
+    <tr><td><code>/help</code></td><td>显示帮助</td></tr>
+  </table>
+
+  <h3>特殊输入</h3>
+  <table>
+    <tr><th>输入</th><th>效果</th></tr>
+    <tr><td><code>! &lt;text&gt;</code></td><td>中断当前生成，立即执行新指令</td></tr>
+    <tr><td>普通文本</td><td>发送给 Claude（忙时自动排队）</td></tr>
+    <tr><td>图片</td><td>下载后以 base64 发送给 Claude 分析</td></tr>
+  </table>
+
+  <h2>工作区群组</h2>
+  <p>每个项目可以创建独立的飞书群作为工作区，群内拥有独立的会话池：</p>
+  <ul>
+    <li>私聊中发送 <code>/workspace /path/to/project</code> 创建群组</li>
+    <li>群名自动从 package.json / pyproject.toml 等读取项目名</li>
+    <li>自动 attach 到该路径下最近的 CLI session</li>
+    <li>每个用户最多 20 个工作区</li>
+    <li>群内发送 <code>/close</code> 解散群组</li>
+  </ul>
+
+  <h2>权限模式</h2>
+  <table>
+    <tr><th>模式</th><th>行为</th></tr>
+    <tr><td><code>default</code></td><td>所有工具调用需要审批（发送卡片）</td></tr>
+    <tr><td><code>acceptEdits</code></td><td>文件编辑自动通过，其他需审批</td></tr>
+    <tr><td><code>bypassPermissions</code></td><td>所有操作自动通过（谨慎使用）</td></tr>
+  </table>
+
+  <h2>自动更新</h2>
+  <p>Agent 启动时自动检查更新（git pull + rebuild）。也可以随时在飞书中发送 <code>/update</code> 手动触发。</p>
+
+  <h2>故障排查</h2>
+  <table>
+    <tr><th>问题</th><th>解决方案</th></tr>
+    <tr><td>Claude Code native binary not found</td><td><code>cli_path</code> 需要绝对路径，执行 <code>which claude</code> 获取</td></tr>
+    <tr><td>Not logged in</td><td>systemd 缺少环境变量，重新执行 <code>--install-service</code>（确保 env 已加载）</td></tr>
+    <tr><td>No conversation found</td><td>session 与 cwd 不匹配，用 <code>/new</code> 开始新会话</td></tr>
+    <tr><td>飞书无响应</td><td>检查 <code>systemctl status cc-lark-channel</code> 是否 active</td></tr>
+    <tr><td>设备码过期</td><td>重启 agent 获取新设备码</td></tr>
+  </table>
+
+  <footer>
+    <a href="/">首页</a> · MIT License
+  </footer>
+</div>
+
+</body>
+</html>
