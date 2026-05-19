@@ -5,303 +5,95 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>cc-lark-channel — 飞书 × Claude Code</title>
   <style>
-    :root {
-      --bg: #0a0a0a;
-      --fg: #e8e8e8;
-      --accent: #6c63ff;
-      --muted: #888;
-      --card-bg: #141414;
-      --border: #2a2a2a;
-      --code-bg: #1a1a2e;
-    }
+    :root { --bg: #0a0a0a; --fg: #e8e8e8; --accent: #6c63ff; --muted: #888; --card-bg: #141414; --border: #2a2a2a; --code-bg: #1a1a2e; --success: #4caf50; --warn: #ff9800; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--fg);
-      line-height: 1.6;
-    }
-    .container { max-width: 800px; margin: 0 auto; padding: 0 24px; }
-
-    /* Hero */
-    .hero {
-      text-align: center;
-      padding: 80px 0 60px;
-    }
-    .hero h1 {
-      font-size: 2.5rem;
-      font-weight: 700;
-      margin-bottom: 16px;
-    }
-    .hero h1 span { color: var(--accent); }
-    .hero p {
-      font-size: 1.2rem;
-      color: var(--muted);
-      max-width: 500px;
-      margin: 0 auto;
-    }
-
-    /* Flow */
-    .flow {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 12px;
-      margin: 40px 0;
-      flex-wrap: wrap;
-    }
-    .flow-step {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 12px 20px;
-      font-size: 0.9rem;
-    }
-    .flow-arrow { color: var(--accent); font-size: 1.2rem; }
-
-    /* Sections */
-    section { padding: 40px 0; }
-    section h2 {
-      font-size: 1.5rem;
-      margin-bottom: 24px;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 8px;
-    }
-
-    /* Steps */
-    .steps { list-style: none; counter-reset: step; }
-    .steps li {
-      counter-increment: step;
-      margin-bottom: 20px;
-      padding-left: 40px;
-      position: relative;
-    }
-    .steps li::before {
-      content: counter(step);
-      position: absolute;
-      left: 0;
-      top: 0;
-      width: 28px;
-      height: 28px;
-      background: var(--accent);
-      color: #fff;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.85rem;
-      font-weight: 600;
-    }
-    .steps li strong { display: block; margin-bottom: 4px; }
-
-    /* Code */
-    pre {
-      background: var(--code-bg);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 16px;
-      overflow-x: auto;
-      font-size: 0.85rem;
-      margin: 8px 0;
-    }
-    code {
-      font-family: 'JetBrains Mono', 'Fira Code', monospace;
-      color: #a8d8a8;
-    }
-    .inline-code {
-      background: var(--code-bg);
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-size: 0.85rem;
-    }
-
-    /* Tabs */
-    .tabs {
-      display: flex;
-      gap: 0;
-      margin-bottom: 0;
-    }
-    .tab {
-      padding: 10px 20px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-bottom: none;
-      cursor: pointer;
-      color: var(--muted);
-      font-size: 0.9rem;
-      border-radius: 6px 6px 0 0;
-    }
-    .tab.active {
-      background: var(--code-bg);
-      color: var(--fg);
-      border-color: var(--accent);
-    }
-    .tab-content {
-      display: none;
-      border: 1px solid var(--border);
-      border-radius: 0 6px 6px 6px;
-      padding: 24px;
-      background: var(--card-bg);
-    }
-    .tab-content.active { display: block; }
-
-    /* Commands table */
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 16px 0;
-      font-size: 0.9rem;
-    }
-    th, td {
-      text-align: left;
-      padding: 8px 12px;
-      border-bottom: 1px solid var(--border);
-    }
-    th { color: var(--muted); font-weight: 500; }
-
-    /* Agent section */
-    .agent-section {
-      background: var(--card-bg);
-      border: 1px solid var(--accent);
-      border-radius: 8px;
-      padding: 24px;
-      margin: 24px 0;
-    }
-    .agent-section h3 {
-      color: var(--accent);
-      margin-bottom: 12px;
-    }
-
-    /* Footer */
-    footer {
-      text-align: center;
-      padding: 40px 0;
-      color: var(--muted);
-      font-size: 0.85rem;
-      border-top: 1px solid var(--border);
-    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.6; min-height: 100vh; }
+    .container { max-width: 700px; margin: 0 auto; padding: 40px 24px; }
+    h1 { font-size: 2rem; text-align: center; margin-bottom: 8px; }
+    h1 span { color: var(--accent); }
+    .subtitle { text-align: center; color: var(--muted); margin-bottom: 40px; }
+    .step { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin-bottom: 20px; }
+    .step-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .step-num { width: 32px; height: 32px; background: var(--accent); color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 0.9rem; flex-shrink: 0; }
+    .step-num.done { background: var(--success); }
+    .step-title { font-size: 1.1rem; font-weight: 600; }
+    pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 14px; overflow-x: auto; font-size: 0.85rem; margin: 8px 0; position: relative; }
+    code { font-family: 'JetBrains Mono', 'Fira Code', monospace; color: #a8d8a8; }
+    .btn { display: inline-block; padding: 10px 24px; background: var(--accent); color: #fff; border: none; border-radius: 6px; font-size: 0.95rem; cursor: pointer; text-decoration: none; transition: opacity 0.2s; }
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-outline { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
+    input[type="text"] { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; color: var(--fg); font-size: 0.95rem; width: 200px; font-family: monospace; }
+    .input-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .status { padding: 8px 14px; border-radius: 6px; margin-top: 12px; font-size: 0.9rem; }
+    .status-success { background: #1b3d1b; border: 1px solid var(--success); color: var(--success); }
+    .status-warn { background: #3d2e1b; border: 1px solid var(--warn); color: var(--warn); }
+    .status-error { background: #3d1b1b; border: 1px solid #f44336; color: #f44336; }
+    .hidden { display: none; }
+    .radio-group { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+    .radio-group label { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; }
+    .radio-group label:hover { border-color: var(--accent); }
+    .radio-group input[type="radio"] { accent-color: var(--accent); }
+    .muted { color: var(--muted); font-size: 0.85rem; }
+    footer { text-align: center; padding: 40px 0; color: var(--muted); font-size: 0.85rem; }
     footer a { color: var(--accent); text-decoration: none; }
   </style>
 </head>
 <body>
 
 <div class="container">
-  <header class="hero">
-    <h1><span>cc-lark-channel</span></h1>
-    <p>通过飞书操控 Claude Code<br>随时随地推进项目开发</p>
-  </header>
+  <h1><span>cc-lark-channel</span></h1>
+  <p class="subtitle">通过飞书操控 Claude Code，随时随地推进项目开发</p>
 
-  <div class="flow">
-    <div class="flow-step">飞书发消息</div>
-    <div class="flow-arrow">→</div>
-    <div class="flow-step">Claude Code 执行</div>
-    <div class="flow-arrow">→</div>
-    <div class="flow-step">结果回传飞书</div>
+  <!-- Step 1: Install -->
+  <div class="step" id="step1">
+    <div class="step-header">
+      <div class="step-num" id="step1-num">1</div>
+      <div class="step-title">安装并启动 Agent</div>
+    </div>
+    <p class="muted">在你的 Claude Code 所在机器上执行：</p>
+    <pre><code>git clone https://github.com/totola147/cc-lark-channel.git
+cd cc-lark-channel && npm install && npm run build
+node dist/index.cjs --relay ws://RELAY_HOST:9000</code></pre>
+    <p class="muted" style="margin-top: 12px;">启动后终端会显示 6 位设备码，继续下一步。</p>
   </div>
 
-  <section>
-    <h2>30 秒接入</h2>
-    <ol class="steps">
-      <li>
-        <strong>克隆并构建</strong>
-        <pre><code>git clone https://github.com/totola147/cc-lark-channel.git
-cd cc-lark-channel && npm install && npm run build</code></pre>
-      </li>
-      <li>
-        <strong>配对</strong>
-        <pre><code>node dist/index.cjs pair --relay wss://relay.cc-lark.dev</code></pre>
-        获取 6 位配对码
-      </li>
-      <li>
-        <strong>飞书扫码</strong>
-        在飞书中添加 <span class="inline-code">cc-lark-channel</span> Bot，发送配对码
-      </li>
-    </ol>
-    <p style="color: var(--muted); margin-top: 16px;">完成。现在可以在飞书里和 Claude Code 对话了。</p>
-  </section>
-
-  <section>
-    <h2>接入方式</h2>
-    <div class="tabs">
-      <div class="tab active" onclick="switchTab(0)">共享 Bot（推荐）</div>
-      <div class="tab" onclick="switchTab(1)">自有 Bot</div>
+  <!-- Step 2: Auth -->
+  <div class="step" id="step2">
+    <div class="step-header">
+      <div class="step-num" id="step2-num">2</div>
+      <div class="step-title">飞书认证</div>
     </div>
-    <div class="tab-content active">
-      <p>零配置，无需创建飞书应用。使用公共 Bot + Relay 中转。</p>
-      <pre><code>git clone https://github.com/totola147/cc-lark-channel.git
-cd cc-lark-channel && npm install && npm run build
-node dist/index.cjs pair --relay wss://relay.cc-lark.dev
-# 飞书发送配对码后：
-node dist/index.cjs --relay wss://relay.cc-lark.dev --token &lt;token&gt;</code></pre>
+    <p class="muted">点击下方按钮完成飞书 OAuth 登录：</p>
+    <div style="margin-top: 12px;">
+      <a class="btn" id="auth-btn" href="/auth">飞书 OAuth 登录</a>
     </div>
-    <div class="tab-content">
-      <p>自建飞书应用，直连 WebSocket，数据不经过第三方。</p>
-      <pre><code>git clone https://github.com/totola147/cc-lark-channel.git
-cd cc-lark-channel && npm install && npm run build
-# 配置 config.toml（填入 app_id/secret）
-cp config.example.toml config.toml && vim config.toml
-node dist/index.cjs --direct --config config.toml</code></pre>
+    <div id="auth-status" class="hidden"></div>
+  </div>
+
+  <!-- Step 3: Bind -->
+  <div class="step" id="step3">
+    <div class="step-header">
+      <div class="step-num" id="step3-num">3</div>
+      <div class="step-title">输入设备码完成配对</div>
     </div>
-  </section>
-
-  <section>
-    <h2>飞书命令</h2>
-    <table>
-      <tr><th>命令</th><th>说明</th></tr>
-      <tr><td><code>/cd &lt;path&gt;</code></td><td>切换工作目录</td></tr>
-      <tr><td><code>/attach &lt;id&gt;</code></td><td>接管 CLI 会话</td></tr>
-      <tr><td><code>/bg [name]</code></td><td>当前任务放后台</td></tr>
-      <tr><td><code>/fg &lt;id&gt;</code></td><td>切回前台</td></tr>
-      <tr><td><code>/sessions</code></td><td>查看所有会话</td></tr>
-      <tr><td><code>/new</code></td><td>新建会话</td></tr>
-      <tr><td><code>/stop</code></td><td>停止生成</td></tr>
-      <tr><td><code>!&lt;text&gt;</code></td><td>中断并执行新指令</td></tr>
-    </table>
-  </section>
-
-  <section>
-    <h2>For AI Agents</h2>
-    <div class="agent-section">
-      <h3>自动化安装（供 AI coding agent 执行）</h3>
-      <pre><code># 检查环境
-node --version  # >= 22
-which claude    # Claude Code CLI 可用
-
-# 克隆并构建
-git clone https://github.com/totola147/cc-lark-channel.git ~/cc-lark-channel
-cd ~/cc-lark-channel && npm install && npm run build
-
-# 模式 A：共享 Bot
-node dist/index.cjs pair --relay wss://relay.cc-lark.dev
-# → 告诉用户 6 位码，让用户在飞书发送
-# → 配对成功后：
-node dist/index.cjs --relay wss://relay.cc-lark.dev --token &lt;token&gt;
-
-# 模式 B：自有 Bot（用户提供 app_id/secret）
-cp config.example.toml config.toml
-# 编辑 config.toml 填入:
-#   [lark] app_id / app_secret
-#   [claude] cli_path = "$(which claude)", default_cwd = "$(pwd)"
-node dist/index.cjs --direct --config config.toml
-
-# 后台运行
-pm2 start "node ~/cc-lark-channel/dist/index.cjs --direct --config ~/cc-lark-channel/config.toml" --name clc
-
-# 验证
-pm2 logs clc --lines 3
-# 成功标志: "cc-lark-channel ready — listening for messages"</code></pre>
+    <p class="muted">输入终端中显示的 6 位设备码：</p>
+    <div class="input-row" style="margin-top: 12px;">
+      <input type="text" id="device-code-input" placeholder="如 A3F-X7K" maxlength="7" />
+      <button class="btn" id="bind-btn" disabled>确认配对</button>
     </div>
-  </section>
+    <div id="bind-status" class="hidden"></div>
+  </div>
 
-  <section>
-    <h2>架构</h2>
-    <pre><code>共享 Bot 模式:
-  飞书 → Cloud Relay → WebSocket tunnel → 本地 clc → Claude Code
-
-自有 Bot 模式:
-  飞书 → 本地 clc → Claude Code（直连）</code></pre>
-    <p style="color: var(--muted); margin-top: 12px;">代码和 API key 始终在用户本地，Relay 只转发消息。</p>
-  </section>
+  <!-- Step 4: Done -->
+  <div class="step hidden" id="step4">
+    <div class="step-header">
+      <div class="step-num done">✓</div>
+      <div class="step-title">配对成功</div>
+    </div>
+    <p>现在可以在飞书中给 Bot 发消息，Claude Code 会响应。</p>
+    <p class="muted" style="margin-top: 8px;">常用命令：/cd /attach /bg /fg /sessions /help</p>
+  </div>
 
   <footer>
     <a href="https://github.com/totola147/cc-lark-channel">GitHub</a> · MIT License
@@ -309,10 +101,67 @@ pm2 logs clc --lines 3
 </div>
 
 <script>
-function switchTab(idx) {
-  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', i === idx));
-  document.querySelectorAll('.tab-content').forEach((c, i) => c.classList.toggle('active', i === idx));
-}
+  const RELAY_BASE = window.location.origin;
+  let authenticatedOpenId = null;
+
+  // Check if returning from OAuth
+  (function checkAuth() {
+    const hash = window.location.hash;
+    if (hash.includes("authenticated")) {
+      const params = new URLSearchParams(hash.replace("#authenticated&", ""));
+      authenticatedOpenId = params.get("open_id");
+      if (authenticatedOpenId) {
+        document.getElementById("step2-num").textContent = "✓";
+        document.getElementById("step2-num").classList.add("done");
+        document.getElementById("auth-btn").textContent = "✅ 已认证";
+        document.getElementById("auth-btn").style.pointerEvents = "none";
+        document.getElementById("auth-status").className = "status status-success";
+        document.getElementById("auth-status").textContent = "认证成功: " + authenticatedOpenId;
+        document.getElementById("auth-status").classList.remove("hidden");
+        document.getElementById("bind-btn").disabled = false;
+        window.location.hash = "";
+      }
+    }
+  })();
+
+  // Bind device code
+  document.getElementById("bind-btn").addEventListener("click", async () => {
+    const code = document.getElementById("device-code-input").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!code || code.length < 6) {
+      showStatus("bind-status", "请输入 6 位设备码", "warn");
+      return;
+    }
+    if (!authenticatedOpenId) {
+      showStatus("bind-status", "请先完成飞书认证", "warn");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${RELAY_BASE}/api/bind`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceCode: code, openId: authenticatedOpenId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showStatus("bind-status", "配对成功！", "success");
+        document.getElementById("step3-num").textContent = "✓";
+        document.getElementById("step3-num").classList.add("done");
+        document.getElementById("step4").classList.remove("hidden");
+      } else {
+        showStatus("bind-status", data.error || "配对失败，请检查设备码", "error");
+      }
+    } catch (err) {
+      showStatus("bind-status", "网络错误: " + err.message, "error");
+    }
+  });
+
+  function showStatus(id, msg, type) {
+    const el = document.getElementById(id);
+    el.className = `status status-${type}`;
+    el.textContent = msg;
+    el.classList.remove("hidden");
+  }
 </script>
 
 </body>

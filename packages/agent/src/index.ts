@@ -1,4 +1,6 @@
 import { resolve } from "node:path";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
 import { loadConfig } from "./config.js";
 import { createLogger } from "./util/logger.js";
 import { DirectTransport } from "./transport/direct.js";
@@ -8,6 +10,8 @@ import { SessionManager } from "./claude/session-manager.js";
 import { StateStore } from "./persistence/store.js";
 import { CommandRouter } from "./commands/router.js";
 import { PermissionBroker } from "./claude/permission-broker.js";
+
+const TOKEN_PATH = resolve(homedir(), ".cc-lark-channel/relay.json");
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -22,30 +26,70 @@ function parseArgs() {
   return opts;
 }
 
+async function loadSavedRelay(): Promise<{ relayUrl: string; openId: string } | null> {
+  try {
+    const raw = await readFile(TOKEN_PATH, "utf-8");
+    const data = JSON.parse(raw);
+    if (data.relayUrl && data.openId) return data;
+  } catch {}
+  return null;
+}
+
+async function saveRelay(relayUrl: string, openId: string): Promise<void> {
+  await mkdir(resolve(homedir(), ".cc-lark-channel"), { recursive: true });
+  await writeFile(TOKEN_PATH, JSON.stringify({ relayUrl, openId }, null, 2));
+}
+
+async function deviceCodeFlow(relayUrl: string): Promise<string> {
+  const httpBase = relayUrl.replace(/^ws/, "http").replace(/\/ws$/, "");
+
+  // Request device code
+  const res = await fetch(`${httpBase}/api/device-code`, { method: "POST" });
+  const { code } = await res.json() as { code: string };
+
+  console.log("");
+  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.log("  设备认证");
+  console.log("");
+  console.log(`  请访问: ${httpBase}`);
+  console.log(`  设备码: ${code}`);
+  console.log("");
+  console.log("  完成飞书 OAuth 认证后输入设备码即可配对");
+  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.log("");
+  console.log("等待配对...");
+
+  // Poll for bind
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 5000));
+    const statusRes = await fetch(`${httpBase}/api/device-code/status?code=${code}`);
+    const status = await statusRes.json() as { status: string; openId?: string };
+    if (status.status === "bound" && status.openId) {
+      console.log(`✅ 配对成功 (open_id: ${status.openId})`);
+      return status.openId;
+    }
+    if (status.status === "expired") {
+      throw new Error("设备码已过期，请重新启动");
+    }
+  }
+  throw new Error("配对超时");
+}
+
 async function main() {
   const opts = parseArgs();
   const configPath = opts["config"] ?? process.env["CLC_CONFIG"] ?? resolve(process.cwd(), "config.toml");
   const config = await loadConfig(configPath);
   const logger = createLogger(config.logging.level);
 
-  const isRelayMode = !!opts["relay"];
-  logger.info({ mode: isRelayMode ? "relay" : "direct", configPath }, "cc-lark-channel starting");
-
   const stateStore = new StateStore(config.persistence.state_dir, logger);
   await stateStore.load();
 
   let transport: Transport & { setEvents(e: TransportEvents): void };
 
-  if (isRelayMode) {
-    if (!opts["openId"]) {
-      console.error("Error: --open-id required in relay mode");
-      process.exit(1);
-    }
-    transport = new RelayTransport(
-      { relayUrl: opts["relay"]!, openId: opts["openId"]! },
-      logger,
-    );
-  } else {
+  const isDirectMode = opts["mode"] === "direct" || (!opts["relay"] && config.lark.app_id);
+
+  if (isDirectMode) {
+    logger.info({ configPath }, "cc-lark-channel starting (direct mode)");
     transport = new DirectTransport(
       {
         app_id: config.lark.app_id,
@@ -55,6 +99,35 @@ async function main() {
       },
       logger,
     );
+  } else {
+    // Relay mode: resolve open_id
+    let relayUrl = opts["relay"] ?? "";
+    let openId = opts["openId"] ?? "";
+
+    // Try saved config
+    if (!relayUrl || !openId) {
+      const saved = await loadSavedRelay();
+      if (saved) {
+        relayUrl = relayUrl || saved.relayUrl;
+        openId = openId || saved.openId;
+      }
+    }
+
+    if (!relayUrl) {
+      console.error("Error: --relay <url> required, or configure in ~/.cc-lark-channel/relay.json");
+      process.exit(1);
+    }
+
+    // Device code flow if no open_id
+    if (!openId) {
+      openId = await deviceCodeFlow(relayUrl);
+    }
+
+    // Save for next time
+    await saveRelay(relayUrl, openId);
+
+    logger.info({ relayUrl, openId }, "cc-lark-channel starting (relay mode)");
+    transport = new RelayTransport({ relayUrl, openId }, logger);
   }
 
   const permissionBroker = new PermissionBroker(config.claude, transport, logger);
