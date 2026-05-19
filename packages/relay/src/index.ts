@@ -230,8 +230,14 @@ async function exchangeCodeForOpenId(code: string): Promise<string> {
     method: "GET",
     headers: { "Authorization": `Bearer ${userAccessToken}` },
   });
-  const infoData = await infoRes.json() as { data: { open_id: string } };
-  logger.info({ openId: infoData.data?.open_id }, "OAuth got open_id");
+  const infoData = await infoRes.json() as { data: { open_id: string; tenant_key: string } };
+  logger.info({ openId: infoData.data?.open_id, tenantKey: infoData.data?.tenant_key }, "OAuth got user info");
+
+  // Org filter
+  const ALLOWED_TENANT_KEY = process.env["ALLOWED_TENANT_KEY"] ?? "";
+  if (ALLOWED_TENANT_KEY && infoData.data?.tenant_key !== ALLOWED_TENANT_KEY) {
+    throw new Error(`Unauthorized organization (tenant_key: ${infoData.data?.tenant_key})`);
+  }
 
   const openId = infoData.data?.open_id;
   if (!openId) {
