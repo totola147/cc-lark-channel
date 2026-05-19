@@ -214,13 +214,18 @@ export class CommandRouter {
       }
 
       case "/update": {
-        await this.larkClient.sendText(chatId, "🔄 Updating...");
         try {
           const { execSync } = await import("node:child_process");
           const cwd = process.cwd();
-          const output = execSync("git pull && npm run build", { cwd, encoding: "utf-8", timeout: 60000 });
-          await this.larkClient.sendText(chatId, `✅ Updated. Restarting...\n${output.slice(-200)}`);
-          setTimeout(() => { process.exit(0); }, 1000);
+          const pullResult = execSync("git pull", { cwd, encoding: "utf-8", timeout: 30000 });
+          if (pullResult.includes("Already up to date")) {
+            await this.larkClient.sendText(chatId, "✅ Already up to date");
+            break;
+          }
+          await this.larkClient.sendText(chatId, "🔄 New version found, building...");
+          execSync("npm run build", { cwd, encoding: "utf-8", timeout: 60000 });
+          await this.larkClient.sendText(chatId, "✅ Updated. Restarting...");
+          setTimeout(() => { process.exit(1); }, 1000);
         } catch (err) {
           await this.larkClient.sendText(chatId, `❌ Update failed: ${(err as Error).message.slice(0, 200)}`);
         }
