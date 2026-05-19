@@ -45,7 +45,10 @@ async function saveRelay(relayUrl: string, openId: string): Promise<void> {
 
 async function installService(): Promise<void> {
   const { execSync } = await import("node:child_process");
-  const scriptPath = resolve(process.cwd(), "dist/index.cjs");
+  const scriptPath = resolve(process.cwd(), "packages/agent/dist/index.cjs");
+  const actualScript = (await import("node:fs")).existsSync(scriptPath)
+    ? scriptPath
+    : resolve(process.cwd(), "dist/index.cjs");
   const unit = `[Unit]
 Description=cc-lark-channel agent
 After=network.target
@@ -54,7 +57,7 @@ After=network.target
 Type=simple
 User=${process.env["USER"] ?? "ubuntu"}
 WorkingDirectory=${process.cwd()}
-ExecStart=${process.execPath} ${scriptPath} --foreground
+ExecStart=${process.execPath} ${actualScript} --foreground
 Restart=on-failure
 RestartSec=5
 Environment=CLC_CONFIG=${process.env["CLC_CONFIG"] ?? resolve(process.cwd(), "config.toml")}
