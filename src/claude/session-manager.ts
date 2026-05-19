@@ -174,6 +174,22 @@ export class SessionManager {
     return true;
   }
 
+  killAll(chatId: string): number {
+    const chat = this.chats.get(chatId);
+    if (!chat) return 0;
+    let count = 0;
+    for (const [, session] of chat.sessions) {
+      session.interrupt();
+      count++;
+    }
+    chat.sessions.clear();
+    const fresh = this.createFreshSession(chatId);
+    chat.sessions.set(fresh.id, fresh);
+    chat.foregroundId = fresh.id;
+    this.persistChat(chatId);
+    return count;
+  }
+
   getSessionList(chatId: string): Array<{ id: string; name?: string; state: string; isForeground: boolean; providerSessionId?: string; cwd: string }> {
     const chat = this.chats.get(chatId);
     if (!chat) return [];

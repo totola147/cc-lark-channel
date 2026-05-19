@@ -119,7 +119,12 @@ export class CommandRouter {
 
       case "/kill": {
         if (!cmd.args) {
-          await this.larkClient.sendText(chatId, "Usage: /kill <session-id or name>");
+          await this.larkClient.sendText(chatId, "Usage: /kill <session-id or name>\n/kill all — kill all sessions");
+          break;
+        }
+        if (cmd.args.toLowerCase() === "all") {
+          const count = this.sessionManager.killAll(chatId);
+          await this.larkClient.sendText(chatId, `🗑 Killed ${count} session(s), new foreground session created`);
           break;
         }
         const killed = this.sessionManager.killSession(chatId, cmd.args);
