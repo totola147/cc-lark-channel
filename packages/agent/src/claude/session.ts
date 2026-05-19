@@ -137,7 +137,7 @@ export class ClaudeSession {
     } catch (err) {
       const msg = (err as Error).message ?? "";
       // Resume failed — retry without session ID
-      if (msg.includes("No conversation found") && this.providerSessionId) {
+      if ((msg.includes("No conversation found") || msg.includes("failed to launch")) && this.providerSessionId) {
         this.logger.warn("Resume failed, starting fresh session");
         this.providerSessionId = undefined;
         this.currentHandle = null;
