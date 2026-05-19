@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>cc-lark-channel — 飞书 × Claude Code</title>
   <style>
-    :root { --bg: #0a0a0a; --fg: #e8e8e8; --accent: #6c63ff; --muted: #888; --card-bg: #141414; --border: #2a2a2a; --code-bg: #1a1a2e; --success: #4caf50; --warn: #ff9800; }
+    :root { --bg: #ffffff; --fg: #1a1a1a; --accent: #6c63ff; --muted: #666; --card-bg: #f8f8f8; --border: #e0e0e0; --code-bg: #f5f5f7; --success: #4caf50; --warn: #ff9800; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.6; min-height: 100vh; }
     .container { max-width: 700px; margin: 0 auto; padding: 40px 24px; }
@@ -18,7 +18,7 @@
     .step-num.done { background: var(--success); }
     .step-title { font-size: 1.1rem; font-weight: 600; }
     pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 14px; overflow-x: auto; font-size: 0.85rem; margin: 8px 0; position: relative; }
-    code { font-family: 'JetBrains Mono', 'Fira Code', monospace; color: #a8d8a8; }
+    code { font-family: 'JetBrains Mono', 'Fira Code', monospace; color: #2d6a4f; }
     .btn { display: inline-block; padding: 10px 24px; background: var(--accent); color: #fff; border: none; border-radius: 6px; font-size: 0.95rem; cursor: pointer; text-decoration: none; transition: opacity 0.2s; }
     .btn:hover { opacity: 0.85; }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -26,9 +26,9 @@
     input[type="text"] { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; color: var(--fg); font-size: 0.95rem; width: 200px; font-family: monospace; }
     .input-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
     .status { padding: 8px 14px; border-radius: 6px; margin-top: 12px; font-size: 0.9rem; }
-    .status-success { background: #1b3d1b; border: 1px solid var(--success); color: var(--success); }
-    .status-warn { background: #3d2e1b; border: 1px solid var(--warn); color: var(--warn); }
-    .status-error { background: #3d1b1b; border: 1px solid #f44336; color: #f44336; }
+    .status-success { background: #e8f5e9; border: 1px solid var(--success); color: #2e7d32; }
+    .status-warn { background: #fff3e0; border: 1px solid var(--warn); color: #e65100; }
+    .status-error { background: #fbe9e7; border: 1px solid #f44336; color: #c62828; }
     .hidden { display: none; }
     .radio-group { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
     .radio-group label { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; }
