@@ -60,17 +60,36 @@ node dist/index.cjs --relay ws://RELAY_HOST:9000</code></pre>
     <p class="muted">注册为系统服务，开机自启、崩溃自动重启，无需手动管理。</p>
   </div>
 
-  <!-- Step 2: Auth -->
+  <!-- Step 2: Choose Bot -->
   <div class="step" id="step2">
     <div class="step-header">
       <div class="step-num" id="step2-num">2</div>
-      <div class="step-title">飞书认证</div>
+      <div class="step-title">选择接入方式</div>
     </div>
-    <p class="muted">点击下方按钮完成飞书 OAuth 登录：</p>
-    <div style="margin-top: 12px;">
-      <a class="btn" id="auth-btn" href="/auth">飞书 OAuth 登录</a>
+    <div class="radio-group">
+      <label><input type="radio" name="bot-mode" value="public" checked onchange="switchBotMode('public')"> 公共 Bot（推荐，零配置）</label>
+      <label><input type="radio" name="bot-mode" value="custom" onchange="switchBotMode('custom')"> 自有 Bot（需要飞书开发者账号）</label>
     </div>
-    <div id="auth-status" class="hidden"></div>
+
+    <!-- Public bot: OAuth -->
+    <div id="mode-public">
+      <p class="muted">点击下方按钮完成飞书 OAuth 登录，自动获取你的身份：</p>
+      <div style="margin-top: 12px;">
+        <a class="btn" id="auth-btn" href="/auth">飞书 OAuth 登录</a>
+      </div>
+      <div id="auth-status" class="hidden"></div>
+    </div>
+
+    <!-- Custom bot: manual input -->
+    <div id="mode-custom" class="hidden">
+      <p class="muted">填写你的飞书应用凭证（在飞书开放平台获取）：</p>
+      <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+        <input type="text" id="custom-app-id" placeholder="App ID (cli_xxx)" style="width: 100%;" />
+        <input type="text" id="custom-app-secret" placeholder="App Secret" style="width: 100%;" />
+      </div>
+      <p class="muted" style="margin-top: 8px;">自有 Bot 模式无需 Relay，Agent 直连飞书。安装命令改为：</p>
+      <pre><code>node dist/index.cjs --direct --config config.toml</code></pre>
+    </div>
   </div>
 
   <!-- Step 3: Bind -->
@@ -81,7 +100,7 @@ node dist/index.cjs --relay ws://RELAY_HOST:9000</code></pre>
     </div>
     <p class="muted">输入终端中显示的 6 位设备码：</p>
     <div class="input-row" style="margin-top: 12px;">
-      <input type="text" id="device-code-input" placeholder="如 A3F-X7K" maxlength="7" />
+      <input type="text" id="device-code-input" placeholder="如 A3FXHK" maxlength="6" />
       <button class="btn" id="bind-btn" disabled>确认配对</button>
     </div>
     <div id="bind-status" class="hidden"></div>
@@ -163,6 +182,18 @@ node dist/index.cjs --relay ws://RELAY_HOST:9000</code></pre>
     el.className = `status status-${type}`;
     el.textContent = msg;
     el.classList.remove("hidden");
+  }
+
+  function switchBotMode(mode) {
+    document.getElementById("mode-public").classList.toggle("hidden", mode !== "public");
+    document.getElementById("mode-custom").classList.toggle("hidden", mode !== "custom");
+    // Public bot needs OAuth + device code; custom bot skips step 3
+    if (mode === "custom") {
+      document.getElementById("step3").classList.add("hidden");
+      document.getElementById("bind-btn").disabled = true;
+    } else {
+      document.getElementById("step3").classList.remove("hidden");
+    }
   }
 </script>
 
