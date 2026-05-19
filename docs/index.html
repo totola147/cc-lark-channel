@@ -64,7 +64,7 @@
       <p class="muted">在你的 Claude Code 所在机器上执行（需要 Node.js ≥ 22 + pnpm）：</p>
       <pre><code>git clone -b v2 https://github.com/totola147/cc-lark-channel.git
 cd cc-lark-channel && pnpm install && pnpm build
-node packages/agent/dist/index.cjs --relay ws://43.153.201.61:9000 --setup</code></pre>
+node packages/agent/dist/index.cjs --relay ws://RELAY_HOST --setup</code></pre>
       <p class="muted" style="margin-top: 8px;">终端会显示 6 位设备码，继续下一步。</p>
     </div>
 
@@ -165,11 +165,11 @@ git clone -b v2 https://github.com/totola147/cc-lark-channel.git ~/cc-lark-chann
 cd ~/cc-lark-channel && pnpm install && pnpm build
 #
 # Step 2: 启动配对（交互式，需要用户操作）
-node packages/agent/dist/index.cjs --relay ws://43.153.201.61:9000 --setup
+node packages/agent/dist/index.cjs --relay ws://RELAY_HOST --setup
 #
 # 执行后终端显示 6 位设备码。
 # 告诉用户：
-#   1. 浏览器访问 http://43.153.201.61:9000
+#   1. 浏览器访问 http://RELAY_HOST
 #   2. 点击「飞书 OAuth 登录」
 #   3. 输入终端显示的 6 位设备码
 #   4. 点击「确认配对」
@@ -223,7 +223,14 @@ sudo systemctl status cc-lark-channel
 
 <script>
   const RELAY_BASE = window.location.origin;
+  const RELAY_HOST = window.location.host;
+  const RELAY_WS = `ws://${RELAY_HOST}`;
   let authenticatedOpenId = null;
+
+  // Replace placeholders with actual relay address
+  document.querySelectorAll('code').forEach(el => {
+    el.textContent = el.textContent.replace(/ws:\/\/RELAY_HOST/g, RELAY_WS).replace(/http:\/\/RELAY_HOST/g, RELAY_BASE);
+  });
 
   function switchMode(mode) {
     document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', (mode === 'public' ? i === 0 : i === 1)));
