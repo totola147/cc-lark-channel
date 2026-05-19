@@ -8,21 +8,20 @@
     :root { --bg: #ffffff; --fg: #1a1a1a; --accent: #6c63ff; --muted: #666; --card-bg: #f8f8f8; --border: #e0e0e0; --code-bg: #f5f5f7; --success: #4caf50; --warn: #ff9800; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.6; min-height: 100vh; }
-    .container { max-width: 700px; margin: 0 auto; padding: 40px 24px; }
+    .container { max-width: 720px; margin: 0 auto; padding: 40px 24px; }
     h1 { font-size: 2rem; text-align: center; margin-bottom: 8px; }
     h1 span { color: var(--accent); }
-    .subtitle { text-align: center; color: var(--muted); margin-bottom: 40px; }
+    .subtitle { text-align: center; color: var(--muted); margin-bottom: 32px; }
     .step { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin-bottom: 20px; }
     .step-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
     .step-num { width: 32px; height: 32px; background: var(--accent); color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 0.9rem; flex-shrink: 0; }
     .step-num.done { background: var(--success); }
     .step-title { font-size: 1.1rem; font-weight: 600; }
-    pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 14px; overflow-x: auto; font-size: 0.85rem; margin: 8px 0; position: relative; }
+    pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 14px; overflow-x: auto; font-size: 0.85rem; margin: 8px 0; }
     code { font-family: 'JetBrains Mono', 'Fira Code', monospace; color: #2d6a4f; }
     .btn { display: inline-block; padding: 10px 24px; background: var(--accent); color: #fff; border: none; border-radius: 6px; font-size: 0.95rem; cursor: pointer; text-decoration: none; transition: opacity 0.2s; }
     .btn:hover { opacity: 0.85; }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-outline { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
     input[type="text"] { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; color: var(--fg); font-size: 0.95rem; width: 200px; font-family: monospace; }
     .input-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
     .status { padding: 8px 14px; border-radius: 6px; margin-top: 12px; font-size: 0.9rem; }
@@ -30,11 +29,14 @@
     .status-warn { background: #fff3e0; border: 1px solid var(--warn); color: #e65100; }
     .status-error { background: #fbe9e7; border: 1px solid #f44336; color: #c62828; }
     .hidden { display: none; }
-    .radio-group { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
-    .radio-group label { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; }
-    .radio-group label:hover { border-color: var(--accent); }
-    .radio-group input[type="radio"] { accent-color: var(--accent); }
     .muted { color: var(--muted); font-size: 0.85rem; }
+    .tabs { display: flex; gap: 0; margin-bottom: 24px; }
+    .tab { flex: 1; padding: 14px 20px; text-align: center; background: var(--card-bg); border: 1px solid var(--border); cursor: pointer; font-size: 0.95rem; color: var(--muted); transition: all 0.2s; }
+    .tab:first-child { border-radius: 8px 0 0 8px; }
+    .tab:last-child { border-radius: 0 8px 8px 0; }
+    .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
     footer { text-align: center; padding: 40px 0; color: var(--muted); font-size: 0.85rem; }
     footer a { color: var(--accent); text-decoration: none; }
   </style>
@@ -45,85 +47,99 @@
   <h1><span>cc-lark-channel</span></h1>
   <p class="subtitle">通过飞书操控 Claude Code，随时随地推进项目开发</p>
 
-  <!-- Step 1: Install -->
-  <div class="step" id="step1">
-    <div class="step-header">
-      <div class="step-num" id="step1-num">1</div>
-      <div class="step-title">安装并启动 Agent</div>
-    </div>
-    <p class="muted">在你的 Claude Code 所在机器上执行：</p>
-    <pre><code>git clone -b v2 https://github.com/totola147/cc-lark-channel.git
-cd cc-lark-channel && pnpm install && pnpm build
-node packages/agent/dist/index.cjs --relay ws://43.153.201.61:9000 --setup</code></pre>
-    <p class="muted" style="margin-top: 12px;">一行完成：显示设备码 → 配对 → 注册系统服务 → 开机自启。</p>
+  <!-- Mode Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchMode('public')">公共 Bot（推荐）</div>
+    <div class="tab" onclick="switchMode('custom')">自有 Bot</div>
   </div>
 
-  <!-- Step 2: Choose Bot -->
-  <div class="step" id="step2">
-    <div class="step-header">
-      <div class="step-num" id="step2-num">2</div>
-      <div class="step-title">选择接入方式</div>
-    </div>
-    <div class="radio-group">
-      <label><input type="radio" name="bot-mode" value="public" checked onchange="switchBotMode('public')"> 公共 Bot（推荐，零配置）</label>
-      <label><input type="radio" name="bot-mode" value="custom" onchange="switchBotMode('custom')"> 自有 Bot（需要飞书开发者账号）</label>
+  <!-- ========== Public Bot Flow ========== -->
+  <div class="tab-panel active" id="panel-public">
+
+    <div class="step">
+      <div class="step-header">
+        <div class="step-num">1</div>
+        <div class="step-title">安装并启动</div>
+      </div>
+      <p class="muted">在你的 Claude Code 所在机器上执行（需要 Node.js ≥ 22 + pnpm）：</p>
+      <pre><code>git clone -b v2 https://github.com/totola147/cc-lark-channel.git
+cd cc-lark-channel && pnpm install && pnpm build
+node packages/agent/dist/index.cjs --relay ws://43.153.201.61:9000 --setup</code></pre>
+      <p class="muted" style="margin-top: 8px;">终端会显示 6 位设备码，继续下一步。</p>
     </div>
 
-    <!-- Public bot: OAuth -->
-    <div id="mode-public">
-      <p class="muted">点击下方按钮完成飞书 OAuth 登录，自动获取你的身份：</p>
+    <div class="step">
+      <div class="step-header">
+        <div class="step-num">2</div>
+        <div class="step-title">飞书认证 + 配对</div>
+      </div>
+      <p class="muted">点击下方按钮完成飞书 OAuth 登录，然后输入设备码：</p>
       <div style="margin-top: 12px;">
         <a class="btn" id="auth-btn" href="/auth">飞书 OAuth 登录</a>
       </div>
       <div id="auth-status" class="hidden"></div>
+      <div class="input-row" style="margin-top: 16px;">
+        <input type="text" id="device-code-input" placeholder="6 位设备码" maxlength="6" />
+        <button class="btn" id="bind-btn" disabled>确认配对</button>
+      </div>
+      <div id="bind-status" class="hidden"></div>
     </div>
 
-    <!-- Custom bot: manual input -->
-    <div id="mode-custom" class="hidden">
-      <p class="muted">自有 Bot 模式无需 Relay，Agent 直连飞书 WebSocket。</p>
-      <p class="muted" style="margin-top: 8px;">前置条件：在<a href="https://open.feishu.cn/" target="_blank" style="color: var(--accent);">飞书开放平台</a>创建企业自建应用，启用机器人能力，配置事件订阅（长连接模式 + im.message.receive_v1 + card.action.trigger）。</p>
-      <p class="muted" style="margin-top: 12px;">在你的 Claude Code 所在机器上执行：</p>
-      <pre><code>git clone -b v2 https://github.com/totola147/cc-lark-channel.git
-cd cc-lark-channel && pnpm install && pnpm build
-
-# 创建配置文件
-cat > config.toml << EOF
-[lark]
-app_id = "你的 App ID"
-app_secret = "你的 App Secret"
-
-[claude]
-cli_path = "$(which claude)"
-default_cwd = "$(pwd)"
-EOF
-
-# 启动并注册服务
-node packages/agent/dist/index.cjs --direct --config config.toml --install-service</code></pre>
+    <div class="step hidden" id="step-done">
+      <div class="step-header">
+        <div class="step-num done">✓</div>
+        <div class="step-title">完成</div>
+      </div>
+      <p>服务已注册并启动。现在可以在飞书中给 Bot 发消息，Claude Code 会响应。</p>
+      <p class="muted" style="margin-top: 8px;">常用命令：/cd /attach /bg /fg /sessions /help</p>
     </div>
+
   </div>
 
-  <!-- Step 3: Bind -->
-  <div class="step" id="step3">
-    <div class="step-header">
-      <div class="step-num" id="step3-num">3</div>
-      <div class="step-title">输入设备码完成配对</div>
-    </div>
-    <p class="muted">输入终端中显示的 6 位设备码：</p>
-    <div class="input-row" style="margin-top: 12px;">
-      <input type="text" id="device-code-input" placeholder="如 A3FXHK" maxlength="6" />
-      <button class="btn" id="bind-btn" disabled>确认配对</button>
-    </div>
-    <div id="bind-status" class="hidden"></div>
-  </div>
+  <!-- ========== Custom Bot Flow ========== -->
+  <div class="tab-panel" id="panel-custom">
 
-  <!-- Step 4: Done -->
-  <div class="step hidden" id="step4">
-    <div class="step-header">
-      <div class="step-num done">✓</div>
-      <div class="step-title">配对成功</div>
+    <div class="step">
+      <div class="step-header">
+        <div class="step-num">1</div>
+        <div class="step-title">创建飞书应用</div>
+      </div>
+      <p class="muted">在 <a href="https://open.feishu.cn/" target="_blank" style="color: var(--accent);">飞书开放平台</a> 创建企业自建应用：</p>
+      <ul class="muted" style="margin: 8px 0 0 20px; line-height: 2;">
+        <li>启用「机器人」能力</li>
+        <li>权限：im:message.p2p_msg:readonly、im:message:send_as_bot、im:resource、im:message:update</li>
+        <li>事件订阅（长连接模式）：im.message.receive_v1、card.action.trigger</li>
+        <li>发布应用</li>
+      </ul>
     </div>
-    <p>现在可以在飞书中给 Bot 发消息，Claude Code 会响应。</p>
-    <p class="muted" style="margin-top: 8px;">常用命令：/cd /attach /bg /fg /sessions /help</p>
+
+    <div class="step">
+      <div class="step-header">
+        <div class="step-num">2</div>
+        <div class="step-title">安装并配置</div>
+      </div>
+      <p class="muted">在你的 Claude Code 所在机器上执行：</p>
+      <pre><code>git clone https://github.com/totola147/cc-lark-channel.git
+cd cc-lark-channel && npm install && npm run build
+
+# 配置
+cp config.example.toml config.toml
+# 编辑 config.toml 填入 app_id 和 app_secret
+# 设置 claude.cli_path 为 claude 的绝对路径
+
+# 启动
+node dist/index.cjs</code></pre>
+    </div>
+
+    <div class="step">
+      <div class="step-header">
+        <div class="step-num">3</div>
+        <div class="step-title">注册系统服务（可选）</div>
+      </div>
+      <pre><code>node dist/index.cjs --install-service</code></pre>
+      <p class="muted">开机自启、崩溃自动重启。</p>
+    </div>
+
   </div>
 
   <footer>
@@ -135,6 +151,12 @@ node packages/agent/dist/index.cjs --direct --config config.toml --install-servi
   const RELAY_BASE = window.location.origin;
   let authenticatedOpenId = null;
 
+  function switchMode(mode) {
+    document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', (mode === 'public' ? i === 0 : i === 1)));
+    document.getElementById('panel-public').classList.toggle('active', mode === 'public');
+    document.getElementById('panel-custom').classList.toggle('active', mode === 'custom');
+  }
+
   // Check if returning from OAuth
   (function checkAuth() {
     const hash = window.location.hash;
@@ -142,8 +164,6 @@ node packages/agent/dist/index.cjs --direct --config config.toml --install-servi
       const params = new URLSearchParams(hash.replace("#authenticated&", ""));
       authenticatedOpenId = params.get("open_id");
       if (authenticatedOpenId) {
-        document.getElementById("step2-num").textContent = "✓";
-        document.getElementById("step2-num").classList.add("done");
         document.getElementById("auth-btn").textContent = "✅ 已认证";
         document.getElementById("auth-btn").style.pointerEvents = "none";
         document.getElementById("auth-status").className = "status status-success";
@@ -155,18 +175,10 @@ node packages/agent/dist/index.cjs --direct --config config.toml --install-servi
     }
   })();
 
-  // Bind device code
   document.getElementById("bind-btn").addEventListener("click", async () => {
     const code = document.getElementById("device-code-input").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (!code || code.length < 6) {
-      showStatus("bind-status", "请输入 6 位设备码", "warn");
-      return;
-    }
-    if (!authenticatedOpenId) {
-      showStatus("bind-status", "请先完成飞书认证", "warn");
-      return;
-    }
-
+    if (!code || code.length < 6) { showStatus("bind-status", "请输入 6 位设备码", "warn"); return; }
+    if (!authenticatedOpenId) { showStatus("bind-status", "请先完成飞书认证", "warn"); return; }
     try {
       const res = await fetch(`${RELAY_BASE}/api/bind`, {
         method: "POST",
@@ -176,9 +188,7 @@ node packages/agent/dist/index.cjs --direct --config config.toml --install-servi
       const data = await res.json();
       if (data.success) {
         showStatus("bind-status", "配对成功！", "success");
-        document.getElementById("step3-num").textContent = "✓";
-        document.getElementById("step3-num").classList.add("done");
-        document.getElementById("step4").classList.remove("hidden");
+        document.getElementById("step-done").classList.remove("hidden");
       } else {
         showStatus("bind-status", data.error || "配对失败，请检查设备码", "error");
       }
@@ -192,18 +202,6 @@ node packages/agent/dist/index.cjs --direct --config config.toml --install-servi
     el.className = `status status-${type}`;
     el.textContent = msg;
     el.classList.remove("hidden");
-  }
-
-  function switchBotMode(mode) {
-    document.getElementById("mode-public").classList.toggle("hidden", mode !== "public");
-    document.getElementById("mode-custom").classList.toggle("hidden", mode !== "custom");
-    // Public bot needs OAuth + device code; custom bot skips step 3
-    if (mode === "custom") {
-      document.getElementById("step3").classList.add("hidden");
-      document.getElementById("bind-btn").disabled = true;
-    } else {
-      document.getElementById("step3").classList.remove("hidden");
-    }
   }
 </script>
 
