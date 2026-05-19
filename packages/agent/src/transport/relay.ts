@@ -70,7 +70,8 @@ export class RelayTransport implements Transport {
 
   private async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.ws = new WebSocket(this.config.relayUrl);
+      const wsUrl = this.config.relayUrl.endsWith("/ws") ? this.config.relayUrl : `${this.config.relayUrl}/ws`;
+      this.ws = new WebSocket(wsUrl);
 
       this.ws.on("open", () => {
         this.logger.info("Connected to relay");
