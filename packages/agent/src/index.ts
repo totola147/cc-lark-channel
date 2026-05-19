@@ -49,6 +49,26 @@ async function installService(): Promise<void> {
   const actualScript = (await import("node:fs")).existsSync(scriptPath)
     ? scriptPath
     : resolve(process.cwd(), "dist/index.cjs");
+
+  // Collect Claude Code related env vars
+  const ccEnvKeys = Object.keys(process.env).filter(k =>
+    k.startsWith("ANTHROPIC_") || k.startsWith("CLAUDE_") || k === "CLC_CONFIG"
+  );
+
+  if (ccEnvKeys.length === 0) {
+    console.warn("⚠️  未检测到 Claude Code 相关环境变量（ANTHROPIC_*、CLAUDE_*）");
+    console.warn("   请确保当前 shell 中已设置认证变量后再执行 --install-service");
+    console.warn("   例如: export ANTHROPIC_API_KEY=sk-ant-xxx");
+    process.exit(1);
+  }
+
+  const envLines = ccEnvKeys
+    .map(k => `Environment=${k}=${process.env[k]}`)
+    .join("\n");
+
+  console.log("检测到以下环境变量将写入服务：");
+  ccEnvKeys.forEach(k => console.log(`  ${k}=${k.includes("KEY") || k.includes("SECRET") ? "***" : process.env[k]}`));
+
   const unit = `[Unit]
 Description=cc-lark-channel agent
 After=network.target
@@ -60,7 +80,7 @@ WorkingDirectory=${process.cwd()}
 ExecStart=${process.execPath} ${actualScript} --foreground
 Restart=on-failure
 RestartSec=5
-Environment=CLC_CONFIG=${process.env["CLC_CONFIG"] ?? resolve(process.cwd(), "config.toml")}
+${envLines}
 
 [Install]
 WantedBy=multi-user.target
