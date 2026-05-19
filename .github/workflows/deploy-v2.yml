@@ -1,0 +1,67 @@
+name: Deploy v2
+
+on:
+  push:
+    branches: [v2]
+    tags: ["v2.*"]
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci-v2.yml
+
+  deploy-relay:
+    needs: ci
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v2
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install and build
+        run: pnpm install && pnpm build
+
+      - name: Deploy Relay
+        run: |
+          sudo mkdir -p /opt/cc-lark-relay
+          sudo chown $(whoami) /opt/cc-lark-relay
+          rsync -a --exclude='node_modules' --exclude='.git' --exclude='.env' packages/relay/ /opt/cc-lark-relay/
+          rsync -a packages/protocol/dist/ /opt/cc-lark-relay/node_modules/@cc-lark/protocol/dist/
+          cd /opt/cc-lark-relay
+          pnpm install --prod 2>/dev/null || npm install --omit=dev 2>/dev/null || true
+
+      - name: Restart Relay service
+        run: |
+          cd /opt/cc-lark-relay
+          if [ -f .env ]; then set -a && source .env && set +a; fi
+          pm2 delete cc-lark-relay 2>/dev/null || true
+          pm2 start dist/index.cjs --name cc-lark-relay
+          pm2 save
+
+      - name: Health check
+        run: |
+          sleep 3
+          STATUS=$(pm2 jlist 2>/dev/null | python3 -c "
+          import json, sys
+          try:
+            data = json.load(sys.stdin)
+            for p in data:
+              if p.get('name') == 'cc-lark-relay':
+                print(p.get('pm2_env',{}).get('status',''))
+                break
+          except: print('unknown')
+          " 2>/dev/null || echo "unknown")
+          if [ "$STATUS" = "online" ]; then
+            echo "✅ Relay deployed successfully"
+          else
+            echo "❌ Relay health check failed: $STATUS"
+            pm2 logs cc-lark-relay --lines 10 --nostream || true
+            exit 1
+          fi
