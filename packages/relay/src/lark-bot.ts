@@ -6,7 +6,6 @@ import {
 import type { Logger } from "pino";
 import type { FeishuCardV2 } from "@cc-lark/protocol";
 import type { TunnelManager } from "./tunnel.js";
-import type { PairingManager } from "./pairing.js";
 
 export interface LarkBotConfig {
   appId: string;
@@ -20,7 +19,6 @@ export class LarkBot {
   constructor(
     private readonly config: LarkBotConfig,
     private readonly tunnels: TunnelManager,
-    private readonly pairing: PairingManager,
     private readonly logger: Logger,
   ) {
     this.sdk = new LarkSDKClient({ appId: config.appId, appSecret: config.appSecret });
@@ -103,23 +101,14 @@ export class LarkBot {
     const { message } = event;
     const chatId = message.chat_id;
 
-    const parsed = this.parseContent(message.message_type, message.content);
-
-    // Check if this is a pairing code
-    if (parsed.text.match(/^[A-Z0-9]{6}$/)) {
-      const record = this.pairing.pairByCode(parsed.text, senderOpenId);
-      if (record) {
-        await this.sendText(chatId, `✅ 配对成功！你的 Agent 已连接。`);
-        this.tunnels.sendToUser(senderOpenId, { type: "paired", userId: senderOpenId });
-        return;
-      }
-    }
-
-    // Route to agent tunnel
     if (!this.tunnels.isUserOnline(senderOpenId)) {
-      await this.sendText(chatId, "⚠️ Agent 离线。请在本地启动 cc-lark-channel。");
+      await this.sendText(chatId,
+        `⚠️ Agent 未连接\n\n你的 open_id:\n${senderOpenId}\n\n请在本地启动:\nnode dist/index.cjs --relay ws://<relay-ip>:9000 --open-id ${senderOpenId}`
+      );
       return;
     }
+
+    const parsed = this.parseContent(message.message_type, message.content);
 
     this.tunnels.sendToUser(senderOpenId, {
       type: "message",

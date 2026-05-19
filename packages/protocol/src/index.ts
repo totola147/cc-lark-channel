@@ -12,7 +12,7 @@ export type RelayToAgent =
 // --- Agent → Relay (upstream) ---
 
 export type AgentToRelay =
-  | { type: "auth"; token: string }
+  | { type: "auth"; openId: string }
   | { type: "pong" }
   | { type: "send_text"; chatId: string; text: string; requestId: string }
   | { type: "send_card"; chatId: string; card: FeishuCardV2; requestId: string }

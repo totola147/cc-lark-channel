@@ -7,7 +7,7 @@ import { createDeferred, type Deferred } from "../util/deferred.js";
 
 export interface RelayTransportConfig {
   relayUrl: string;
-  token: string;
+  openId: string;
   reconnectIntervalMs?: number;
 }
 
@@ -74,7 +74,7 @@ export class RelayTransport implements Transport {
 
       this.ws.on("open", () => {
         this.logger.info("Connected to relay");
-        this.send({ type: "auth", token: this.config.token });
+        this.send({ type: "auth", openId: this.config.openId });
         resolve();
       });
 

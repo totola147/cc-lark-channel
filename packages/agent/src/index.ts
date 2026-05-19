@@ -15,7 +15,7 @@ function parseArgs() {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === "--relay" && args[i + 1]) opts["relay"] = args[++i]!;
-    else if (arg === "--token" && args[i + 1]) opts["token"] = args[++i]!;
+    else if (arg === "--open-id" && args[i + 1]) opts["openId"] = args[++i]!;
     else if (arg === "--config" && args[i + 1]) opts["config"] = args[++i]!;
     else if (arg === "--direct") opts["mode"] = "direct";
   }
@@ -37,12 +37,12 @@ async function main() {
   let transport: Transport & { setEvents(e: TransportEvents): void };
 
   if (isRelayMode) {
-    if (!opts["token"]) {
-      console.error("Error: --token required in relay mode");
+    if (!opts["openId"]) {
+      console.error("Error: --open-id required in relay mode");
       process.exit(1);
     }
     transport = new RelayTransport(
-      { relayUrl: opts["relay"]!, token: opts["token"]! },
+      { relayUrl: opts["relay"]!, openId: opts["openId"]! },
       logger,
     );
   } else {
