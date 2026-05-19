@@ -107,7 +107,11 @@ async function main() {
 
   let transport: Transport & { setEvents(e: TransportEvents): void };
 
-  const isDirectMode = opts["mode"] === "direct" || (!opts["relay"] && config.lark.app_id);
+  // Determine mode: check saved relay config if no explicit args
+  const savedRelay = await loadSavedRelay();
+  const hasRelayArg = !!opts["relay"];
+  const hasRelayConfig = !!savedRelay;
+  const isDirectMode = opts["mode"] === "direct" || (!hasRelayArg && !hasRelayConfig && config.lark.app_id);
 
   if (isDirectMode) {
     logger.info({ configPath }, "cc-lark-channel starting (direct mode)");
@@ -125,13 +129,10 @@ async function main() {
     let relayUrl = opts["relay"] ?? "";
     let openId = opts["openId"] ?? "";
 
-    // Try saved config
-    if (!relayUrl || !openId) {
-      const saved = await loadSavedRelay();
-      if (saved) {
-        relayUrl = relayUrl || saved.relayUrl;
-        openId = openId || saved.openId;
-      }
+    // Use saved config
+    if (savedRelay) {
+      relayUrl = relayUrl || savedRelay.relayUrl;
+      openId = openId || savedRelay.openId;
     }
 
     if (!relayUrl) {
