@@ -54,10 +54,8 @@
     <p class="muted">在你的 Claude Code 所在机器上执行：</p>
     <pre><code>git clone -b v2 https://github.com/totola147/cc-lark-channel.git
 cd cc-lark-channel && pnpm install && pnpm build
-node packages/agent/dist/index.cjs --relay ws://43.153.201.61:9000</code></pre>
-    <p class="muted" style="margin-top: 12px;">首次启动会显示 6 位设备码，完成配对后执行：</p>
-    <pre><code>node packages/agent/dist/index.cjs --install-service</code></pre>
-    <p class="muted">注册为系统服务，开机自启、崩溃自动重启，无需手动管理。</p>
+node packages/agent/dist/index.cjs --relay ws://43.153.201.61:9000 --setup</code></pre>
+    <p class="muted" style="margin-top: 12px;">一行完成：显示设备码 → 配对 → 注册系统服务 → 开机自启。</p>
   </div>
 
   <!-- Step 2: Choose Bot -->
