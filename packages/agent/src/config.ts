@@ -5,9 +5,9 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 
 const LarkSchema = z.object({
-  app_id: z.string().min(1, "lark.app_id is required"),
-  app_secret: z.string().min(1, "lark.app_secret is required"),
-});
+  app_id: z.string().optional().default(""),
+  app_secret: z.string().optional().default(""),
+}).optional().default({ app_id: "", app_secret: "" });
 
 const AccessSchema = z.object({
   allowed_open_ids: z.array(z.string()).optional().default([]),
@@ -112,8 +112,13 @@ function expandHome(p: string): string {
 }
 
 export async function loadConfig(configPath: string): Promise<AppConfig> {
-  const raw = await readFile(configPath, "utf-8");
-  const parsed = parse(raw) as Record<string, unknown>;
+  let parsed: Record<string, unknown> = {};
+  try {
+    const raw = await readFile(configPath, "utf-8");
+    parsed = parse(raw) as Record<string, unknown>;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
   applyRawEnvOverrides(parsed);
   const config = ConfigSchema.parse(parsed);
 

@@ -208,8 +208,9 @@ async function exchangeCodeForOpenId(code: string): Promise<string> {
     body: JSON.stringify({ app_id: LARK_APP_ID, app_secret: LARK_APP_SECRET }),
   });
   const tokenData = await tokenRes.json() as { app_access_token: string };
+  logger.debug({ tokenData }, "Got app_access_token");
 
-  // Exchange code for user info
+  // Exchange code for user access token
   const userRes = await fetch("https://open.feishu.cn/open-apis/authen/v1/oidc/access_token", {
     method: "POST",
     headers: {
@@ -218,8 +219,25 @@ async function exchangeCodeForOpenId(code: string): Promise<string> {
     },
     body: JSON.stringify({ grant_type: "authorization_code", code }),
   });
-  const userData = await userRes.json() as { data: { open_id: string } };
-  return userData.data.open_id;
+  const userData = await userRes.json() as { data: { access_token: string } };
+  const userAccessToken = userData.data?.access_token;
+  if (!userAccessToken) {
+    throw new Error(`Failed to get user access_token: ${JSON.stringify(userData)}`);
+  }
+
+  // Get user info with user access token
+  const infoRes = await fetch("https://open.feishu.cn/open-apis/authen/v1/user_info", {
+    method: "GET",
+    headers: { "Authorization": `Bearer ${userAccessToken}` },
+  });
+  const infoData = await infoRes.json() as { data: { open_id: string } };
+  logger.info({ openId: infoData.data?.open_id }, "OAuth got open_id");
+
+  const openId = infoData.data?.open_id;
+  if (!openId) {
+    throw new Error(`Failed to get open_id: ${JSON.stringify(infoData)}`);
+  }
+  return openId;
 }
 
 main().catch((err) => {
