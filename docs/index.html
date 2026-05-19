@@ -203,12 +203,13 @@
     <h2>30 秒接入</h2>
     <ol class="steps">
       <li>
-        <strong>安装</strong>
-        <pre><code>npm install -g @cc-lark/agent</code></pre>
+        <strong>克隆并构建</strong>
+        <pre><code>git clone https://github.com/totola147/cc-lark-channel.git
+cd cc-lark-channel && npm install && npm run build</code></pre>
       </li>
       <li>
         <strong>配对</strong>
-        <pre><code>clc pair --relay wss://relay.cc-lark.dev</code></pre>
+        <pre><code>node dist/index.cjs pair --relay wss://relay.cc-lark.dev</code></pre>
         获取 6 位配对码
       </li>
       <li>
@@ -227,16 +228,19 @@
     </div>
     <div class="tab-content active">
       <p>零配置，无需创建飞书应用。使用公共 Bot + Relay 中转。</p>
-      <pre><code>npm install -g @cc-lark/agent
-clc pair --relay wss://relay.cc-lark.dev
+      <pre><code>git clone https://github.com/totola147/cc-lark-channel.git
+cd cc-lark-channel && npm install && npm run build
+node dist/index.cjs pair --relay wss://relay.cc-lark.dev
 # 飞书发送配对码后：
-clc --relay wss://relay.cc-lark.dev --token &lt;token&gt;</code></pre>
+node dist/index.cjs --relay wss://relay.cc-lark.dev --token &lt;token&gt;</code></pre>
     </div>
     <div class="tab-content">
       <p>自建飞书应用，直连 WebSocket，数据不经过第三方。</p>
-      <pre><code>npm install -g @cc-lark/agent
-# 配置 ~/.cc-lark-channel/config.toml（填入 app_id/secret）
-clc --direct --config ~/.cc-lark-channel/config.toml</code></pre>
+      <pre><code>git clone https://github.com/totola147/cc-lark-channel.git
+cd cc-lark-channel && npm install && npm run build
+# 配置 config.toml（填入 app_id/secret）
+cp config.example.toml config.toml && vim config.toml
+node dist/index.cjs --direct --config config.toml</code></pre>
     </div>
   </section>
 
@@ -263,29 +267,25 @@ clc --direct --config ~/.cc-lark-channel/config.toml</code></pre>
 node --version  # >= 22
 which claude    # Claude Code CLI 可用
 
-# 安装
-npm install -g @cc-lark/agent
+# 克隆并构建
+git clone https://github.com/totola147/cc-lark-channel.git ~/cc-lark-channel
+cd ~/cc-lark-channel && npm install && npm run build
 
 # 模式 A：共享 Bot
-clc pair --relay wss://relay.cc-lark.dev
+node dist/index.cjs pair --relay wss://relay.cc-lark.dev
 # → 告诉用户 6 位码，让用户在飞书发送
 # → 配对成功后：
-clc --relay wss://relay.cc-lark.dev --token &lt;token&gt;
+node dist/index.cjs --relay wss://relay.cc-lark.dev --token &lt;token&gt;
 
 # 模式 B：自有 Bot（用户提供 app_id/secret）
-mkdir -p ~/.cc-lark-channel
-cat > ~/.cc-lark-channel/config.toml &lt;&lt; EOF
-[lark]
-app_id = "&lt;user_app_id&gt;"
-app_secret = "&lt;user_app_secret&gt;"
-[claude]
-cli_path = "$(which claude)"
-default_cwd = "$(pwd)"
-EOF
-clc --direct --config ~/.cc-lark-channel/config.toml
+cp config.example.toml config.toml
+# 编辑 config.toml 填入:
+#   [lark] app_id / app_secret
+#   [claude] cli_path = "$(which claude)", default_cwd = "$(pwd)"
+node dist/index.cjs --direct --config config.toml
 
 # 后台运行
-pm2 start "clc ..." --name clc
+pm2 start "node ~/cc-lark-channel/dist/index.cjs --direct --config ~/cc-lark-channel/config.toml" --name clc
 
 # 验证
 pm2 logs clc --lines 3
