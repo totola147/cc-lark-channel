@@ -1,6 +1,7 @@
 name: CI v2
 
 on:
+  workflow_call:
   pull_request:
     branches: [v2]
   push:
