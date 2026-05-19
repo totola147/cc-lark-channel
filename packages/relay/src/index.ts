@@ -174,7 +174,7 @@ async function main() {
         }
       }
 
-      router.handleAgentMessage(openId, raw);
+      router.handleAgentMessage(openId!, raw);
     });
 
     ws.on("close", () => {

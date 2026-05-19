@@ -17,6 +17,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install
+      - run: pnpm --filter @cc-lark/protocol build
       - run: pnpm -r typecheck
 
   test:
@@ -29,6 +30,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install
+      - run: pnpm --filter @cc-lark/protocol build
       - run: pnpm test
 
   build:
