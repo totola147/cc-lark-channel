@@ -53,8 +53,20 @@ async function installService(): Promise<void> {
 
   // Collect Claude Code related env vars
   const ccEnvKeys = Object.keys(process.env).filter(k =>
-    k.startsWith("ANTHROPIC_") || k.startsWith("CLAUDE_") || k === "CLC_CONFIG"
+    k.startsWith("ANTHROPIC_") || k.startsWith("CLAUDE_") || k === "CLC_CONFIG" || k === "CLC_CLAUDE_CLI_PATH"
   );
+
+  // Auto-detect claude path and add to env if not already set
+  const { execSync: execSyncSvc } = await import("node:child_process");
+  if (!process.env["CLC_CLAUDE_CLI_PATH"]) {
+    try {
+      const claudePath = execSyncSvc("which claude", { encoding: "utf-8" }).trim();
+      if (claudePath) {
+        process.env["CLC_CLAUDE_CLI_PATH"] = claudePath;
+        ccEnvKeys.push("CLC_CLAUDE_CLI_PATH");
+      }
+    } catch {}
+  }
 
   if (ccEnvKeys.length === 0) {
     console.warn("⚠️  未检测到 Claude Code 相关环境变量（ANTHROPIC_*、CLAUDE_*）");
