@@ -122,7 +122,7 @@ async function main() {
       const { readFile } = await import("node:fs/promises");
       const { join } = await import("node:path");
       try {
-        const html = await readFile(join(import.meta.dirname ?? ".", "../docs/index.html"), "utf-8");
+        const html = await readFile(join(__dirname, "../docs/index.html"), "utf-8");
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(html);
       } catch {
