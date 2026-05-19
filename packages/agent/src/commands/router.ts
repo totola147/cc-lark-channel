@@ -294,6 +294,9 @@ const HELP_TEXT = `cc-lark-channel commands:
 /kill <id> — Kill a background session
 /kill all — Kill all sessions
 /attach <id> — Attach to an existing CLI session
+/workspace <path> — Create a workspace group for a project
+/workspaces — List all workspace groups
+/close — Close current workspace group
 /update — Pull latest code and restart
 /mode <mode> — Set permission mode
 /model <name> — Switch model
