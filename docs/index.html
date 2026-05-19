@@ -52,11 +52,11 @@
       <div class="step-title">安装并启动 Agent</div>
     </div>
     <p class="muted">在你的 Claude Code 所在机器上执行：</p>
-    <pre><code>git clone https://github.com/totola147/cc-lark-channel.git
-cd cc-lark-channel && npm install && npm run build
-node dist/index.cjs --relay ws://43.153.201.61:9000</code></pre>
+    <pre><code>git clone -b v2 https://github.com/totola147/cc-lark-channel.git
+cd cc-lark-channel && pnpm install && pnpm build
+node packages/agent/dist/index.cjs --relay ws://43.153.201.61:9000</code></pre>
     <p class="muted" style="margin-top: 12px;">首次启动会显示 6 位设备码，完成配对后执行：</p>
-    <pre><code>node dist/index.cjs --install-service</code></pre>
+    <pre><code>node packages/agent/dist/index.cjs --install-service</code></pre>
     <p class="muted">注册为系统服务，开机自启、崩溃自动重启，无需手动管理。</p>
   </div>
 
@@ -88,7 +88,7 @@ node dist/index.cjs --relay ws://43.153.201.61:9000</code></pre>
         <input type="text" id="custom-app-secret" placeholder="App Secret" style="width: 100%;" />
       </div>
       <p class="muted" style="margin-top: 8px;">自有 Bot 模式无需 Relay，Agent 直连飞书。安装命令改为：</p>
-      <pre><code>node dist/index.cjs --direct --config config.toml</code></pre>
+      <pre><code>node packages/agent/dist/index.cjs --direct --config config.toml</code></pre>
     </div>
   </div>
 
