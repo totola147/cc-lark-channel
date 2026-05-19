@@ -24,6 +24,7 @@ function parseArgs() {
     else if (arg === "--direct") opts["mode"] = "direct";
     else if (arg === "--daemon") opts["daemon"] = "true";
     else if (arg === "--foreground") opts["foreground"] = "true";
+    else if (arg === "--install-service") opts["installService"] = "true";
   }
   return opts;
 }
@@ -40,6 +41,39 @@ async function loadSavedRelay(): Promise<{ relayUrl: string; openId: string } | 
 async function saveRelay(relayUrl: string, openId: string): Promise<void> {
   await mkdir(resolve(homedir(), ".cc-lark-channel"), { recursive: true });
   await writeFile(TOKEN_PATH, JSON.stringify({ relayUrl, openId }, null, 2));
+}
+
+async function installService(): Promise<void> {
+  const { execSync } = await import("node:child_process");
+  const scriptPath = resolve(process.cwd(), "dist/index.cjs");
+  const unit = `[Unit]
+Description=cc-lark-channel agent
+After=network.target
+
+[Service]
+Type=simple
+User=${process.env["USER"] ?? "ubuntu"}
+WorkingDirectory=${process.cwd()}
+ExecStart=${process.execPath} ${scriptPath} --foreground
+Restart=on-failure
+RestartSec=5
+Environment=CLC_CONFIG=${process.env["CLC_CONFIG"] ?? resolve(process.cwd(), "config.toml")}
+
+[Install]
+WantedBy=multi-user.target
+`;
+  const servicePath = "/etc/systemd/system/cc-lark-channel.service";
+  await writeFile("/tmp/cc-lark-channel.service", unit);
+  try {
+    execSync(`sudo mv /tmp/cc-lark-channel.service ${servicePath} && sudo systemctl daemon-reload && sudo systemctl enable cc-lark-channel && sudo systemctl start cc-lark-channel`, { stdio: "inherit" });
+    console.log("✅ 系统服务已安装并启动");
+    console.log("   状态: sudo systemctl status cc-lark-channel");
+    console.log("   日志: sudo journalctl -u cc-lark-channel -f");
+    console.log("   停止: sudo systemctl stop cc-lark-channel");
+  } catch {
+    console.error("❌ 安装服务失败（需要 sudo 权限）");
+    process.exit(1);
+  }
 }
 
 async function deviceCodeFlow(relayUrl: string): Promise<string> {
@@ -95,6 +129,12 @@ async function main() {
     await writeFile(pidFile, String(child.pid));
     console.log(`✅ Agent 已在后台启动 (PID: ${child.pid})`);
     console.log(`   停止: kill $(cat ~/.cc-lark-channel/daemon.pid)`);
+    process.exit(0);
+  }
+
+  // Install as system service
+  if (opts["installService"]) {
+    await installService();
     process.exit(0);
   }
 
