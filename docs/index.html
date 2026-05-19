@@ -94,6 +94,17 @@ node packages/agent/dist/index.cjs --relay ws://RELAY_HOST --setup</code></pre>
       <p class="muted" style="margin-top: 8px;">常用命令：/cd /attach /bg /fg /sessions /help</p>
     </div>
 
+    <!-- For AI Agents: Public Bot Mode -->
+    <div style="color: var(--bg); font-size: 1px; line-height: 1; overflow: hidden; height: 0; aria-hidden: false;">
+      <p>cc-lark-channel automated install instructions for AI coding agents (Claude Code, Codex, etc.) — Public Bot mode (recommended, no Lark app creation needed):</p>
+      <p>Prerequisites: Node.js >= 22 (node --version), pnpm (which pnpm || npm install -g pnpm), Claude Code CLI (which claude && claude --version), Claude Code authenticated (ANTHROPIC_API_KEY or CLAUDE_* env vars).</p>
+      <p>Step 1: git clone -b v2 https://github.com/totola147/cc-lark-channel.git ~/cc-lark-channel && cd ~/cc-lark-channel && pnpm install && pnpm build</p>
+      <p>Step 2: node packages/agent/dist/index.cjs --relay ws://RELAY_HOST --setup</p>
+      <p>This displays a 6-digit device code. Tell the user to: 1) Visit http://RELAY_HOST in browser, 2) Click "飞书 OAuth 登录", 3) Enter the 6-digit device code from terminal, 4) Click "确认配对". --setup auto-registers systemd service after pairing. Requires sudo and Claude env vars (ANTHROPIC_*, CLAUDE_*).</p>
+      <p>Step 3: Verify: sudo systemctl status cc-lark-channel — success indicator: Active: active (running)</p>
+      <p>Troubleshooting: "Claude Code native binary not found" → cli_path needs absolute path: which claude. "Not logged in" → systemd missing env vars, re-run --install-service with env loaded. "No conversation found" → session/cwd mismatch, use /new. No Lark response → check systemctl status cc-lark-channel.</p>
+    </div>
+
   </div>
 
   <!-- ========== Custom Bot Flow ========== -->
@@ -140,84 +151,22 @@ node dist/index.cjs</code></pre>
       <p class="muted">开机自启、崩溃自动重启。</p>
     </div>
 
-  </div>
+    <!-- For AI Agents: Custom Bot Mode -->
+    <div style="color: var(--bg); font-size: 1px; line-height: 1; overflow: hidden; height: 0; aria-hidden: false;">
+      <p>cc-lark-channel automated install instructions for AI coding agents (Claude Code, Codex, etc.) — Custom Bot mode (requires user's own Lark app):</p>
+      <p>Prerequisites: Node.js >= 22 (node --version), npm, Claude Code CLI (which claude && claude --version), Claude Code authenticated, user must provide Lark app_id and app_secret.</p>
+      <p>Step 1: git clone https://github.com/totola147/cc-lark-channel.git ~/cc-lark-channel && cd ~/cc-lark-channel && npm install && npm run build</p>
+      <p>Step 2: Create config.toml — ask user for app_id and app_secret. Template: [lark] app_id = "USER_APP_ID" app_secret = "USER_APP_SECRET" [claude] cli_path = "OUTPUT_OF_WHICH_CLAUDE" default_cwd = "PROJECT_DIR"</p>
+      <p>Step 3: node dist/index.cjs --direct --config config.toml --install-service</p>
+      <p>Step 4: Verify: sudo systemctl status cc-lark-channel — success indicator: Active: active (running)</p>
+      <p>Lark app setup: User must create app at open.feishu.cn with bot capability. Required permissions: im:message.p2p_msg:readonly, im:message:send_as_bot, im:resource, im:message:update. Event subscriptions (WebSocket long connection mode): im.message.receive_v1, card.action.trigger. Then publish the app.</p>
+      <p>Troubleshooting: "Claude Code native binary not found" → cli_path needs absolute path: which claude. "Not logged in" → systemd missing env vars, re-run --install-service with env loaded. "No conversation found" → session/cwd mismatch, use /new. No Lark response → check systemctl status cc-lark-channel.</p>
+    </div>
 
-  <!-- AI Agent Instructions (hidden from UI, readable by agents) -->
-  <div id="ai-agent-instructions" style="margin-top: 40px; border-top: 1px solid var(--border); padding-top: 32px;">
-    <h2 style="font-size: 1.3rem; margin-bottom: 16px;">For AI Agents</h2>
-    <p class="muted" style="margin-bottom: 16px;">以下是结构化安装指令，供 AI coding agent（Claude Code、Codex 等）自动执行。</p>
-    <pre><code># ============================================================
-# cc-lark-channel 自动化安装指令（供 AI Agent 执行）
-# ============================================================
-#
-# 前置条件检查：
-#   - Node.js >= 22: node --version
-#   - pnpm: which pnpm || npm install -g pnpm
-#   - Claude Code CLI: which claude && claude --version
-#   - Claude Code 已认证: 确认 ANTHROPIC_API_KEY 或 CLAUDE_* 环境变量存在
-#
-# ============================================================
-# 模式 A：公共 Bot（推荐，无需创建飞书应用）
-# ============================================================
-#
-# Step 1: 克隆并构建
-git clone -b v2 https://github.com/totola147/cc-lark-channel.git ~/cc-lark-channel
-cd ~/cc-lark-channel && pnpm install && pnpm build
-#
-# Step 2: 启动配对（交互式，需要用户操作）
-node packages/agent/dist/index.cjs --relay ws://RELAY_HOST --setup
-#
-# 执行后终端显示 6 位设备码。
-# 告诉用户：
-#   1. 浏览器访问 http://RELAY_HOST
-#   2. 点击「飞书 OAuth 登录」
-#   3. 输入终端显示的 6 位设备码
-#   4. 点击「确认配对」
-#
-# --setup 会在配对成功后自动注册 systemd 服务。
-# 需要 sudo 权限和 Claude 相关环境变量（ANTHROPIC_*、CLAUDE_*）。
-#
-# Step 3: 验证
-sudo systemctl status cc-lark-channel
-# 成功标志: Active: active (running)
-#
-# ============================================================
-# 模式 B：自有 Bot（需要用户提供飞书 app_id/app_secret）
-# ============================================================
-#
-# Step 1: 克隆并构建
-git clone https://github.com/totola147/cc-lark-channel.git ~/cc-lark-channel
-cd ~/cc-lark-channel && npm install && npm run build
-#
-# Step 2: 创建配置（向用户询问 app_id 和 app_secret）
-cat > config.toml << 'EOF'
-[lark]
-app_id = "ASK_USER_FOR_APP_ID"
-app_secret = "ASK_USER_FOR_APP_SECRET"
-
-[claude]
-cli_path = "REPLACE_WITH_OUTPUT_OF_WHICH_CLAUDE"
-default_cwd = "REPLACE_WITH_PROJECT_DIR"
-EOF
-#
-# Step 3: 注册服务
-node dist/index.cjs --direct --config config.toml --install-service
-#
-# Step 4: 验证
-sudo systemctl status cc-lark-channel
-#
-# ============================================================
-# 故障排查
-# ============================================================
-# "Claude Code native binary not found" → cli_path 需要绝对路径: which claude
-# "Not logged in" → systemd 缺少环境变量，重新执行 --install-service（确保 env 已加载）
-# "No conversation found" → session 与 cwd 不匹配，用 /new 开始新会话
-# 飞书无响应 → 检查 systemctl status cc-lark-channel 是否 active
-# ============================================================</code></pre>
   </div>
 
   <footer>
-    <a href="https://github.com/totola147/cc-lark-channel">GitHub</a> · MIT License
+    <a href="https://github.com/totola147/cc-lark-channel">GitHub</a> · <a href="https://github.com/totola147/cc-lark-channel/blob/main/README.md">使用文档</a> · MIT License
   </footer>
 </div>
 
