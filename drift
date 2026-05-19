@@ -1,0 +1,3 @@
+我们开发一个自己的，cc-lark-connector 主要参考 https://github.com/chenhg5/cc-connect ，制作一个精简版的（只需要适配lark）会话持久化
+  ，消息队列，流式状态卡片，中断;但功能要足够精细，但要吸收agent-feishu-channel 精细化的体验设计，比如交互式审批卡片（点按钮而非打命令） ! 中断机制设计更直觉 ，/stop 停止当前生成
+  流式状态卡片展示 thinking blocks、工具活动、生成进度；支持传输图片；
