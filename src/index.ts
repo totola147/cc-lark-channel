@@ -7,6 +7,7 @@ import { SessionManager } from "./claude/session-manager.js";
 import { StateStore } from "./persistence/store.js";
 import { CommandRouter } from "./commands/router.js";
 import { PermissionBroker } from "./claude/permission-broker.js";
+import { WorkspaceManager } from "./workspace/manager.js";
 
 const CONFIG_PATH = process.env["CLC_CONFIG"] ?? resolve(process.cwd(), "config.toml");
 
@@ -32,7 +33,8 @@ async function main() {
   const larkClient = new LarkClient(config.lark, logger);
   const permissionBroker = new PermissionBroker(config.claude, larkClient, logger);
   const sessionManager = new SessionManager(config, stateStore, permissionBroker, larkClient, logger);
-  const commandRouter = new CommandRouter(sessionManager, larkClient, config, logger);
+  const workspaceManager = new WorkspaceManager(larkClient, stateStore, logger);
+  const commandRouter = new CommandRouter(sessionManager, larkClient, config, workspaceManager, logger);
 
   const gateway = new LarkGateway({
     config: config.lark,

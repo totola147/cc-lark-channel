@@ -1,5 +1,6 @@
 import type { LarkClient } from "../lark/client.js";
 import type { SessionManager } from "../claude/session-manager.js";
+import type { WorkspaceManager } from "../workspace/manager.js";
 import type { AppConfig } from "../config.js";
 import type { IncomingMessage, PermissionMode } from "../types.js";
 import type { Logger } from "../util/logger.js";
@@ -14,6 +15,7 @@ export class CommandRouter {
     private readonly sessionManager: SessionManager,
     private readonly larkClient: LarkClient,
     private readonly config: AppConfig,
+    private readonly workspaceManager: WorkspaceManager,
     _logger: Logger,
   ) {}
 
@@ -25,7 +27,7 @@ export class CommandRouter {
     const command = spaceIdx === -1 ? text : text.slice(0, spaceIdx);
     const args = spaceIdx === -1 ? "" : text.slice(spaceIdx + 1).trim();
 
-    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/cd", "/bg", "/fg", "/kill", "/attach", "/update", "/help"];
+    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/cd", "/bg", "/fg", "/kill", "/attach", "/update", "/workspace", "/workspaces", "/close", "/help"];
     if (!known.includes(command)) return null;
 
     return { command, args };
@@ -210,6 +212,53 @@ export class CommandRouter {
         }
         const cwdInfo = attachCwd ? `\nCWD: ${attachCwd}` : "";
         await this.larkClient.sendText(chatId, `🔗 Attached to session: ${sessionId}${cwdInfo}`);
+        break;
+      }
+
+      case "/workspace": {
+        if (!cmd.args) {
+          await this.larkClient.sendText(chatId, "Usage: /workspace <path>\nCreate a workspace group for a project.");
+          break;
+        }
+        const wsPath = cmd.args.replace(/^["']|["']$/g, "");
+        const result = await this.workspaceManager.create(wsPath, msg.senderOpenId);
+        if ("error" in result) {
+          await this.larkClient.sendText(chatId, `❌ ${result.error}`);
+          break;
+        }
+        // Auto-attach latest CLI session if exists
+        const latestSession = this.workspaceManager.getLatestSessionId(wsPath);
+        if (latestSession) {
+          const session = this.sessionManager.getOrCreateSession(result.chatId);
+          session.providerSessionId = latestSession;
+          session.cwd = wsPath;
+        }
+        await this.larkClient.sendText(chatId, `✅ Workspace created: ${result.name}\n📂 ${wsPath}\nGroup: ${result.chatId}`);
+        break;
+      }
+
+      case "/workspaces": {
+        const workspaces = this.workspaceManager.list(msg.senderOpenId);
+        if (workspaces.length === 0) {
+          await this.larkClient.sendText(chatId, "No workspaces. Use /workspace <path> to create one.");
+          break;
+        }
+        const lines = workspaces.map(w => `• ${w.name}\n  📂 ${w.path}`);
+        await this.larkClient.sendText(chatId, `Workspaces (${workspaces.length}/${20}):\n${lines.join("\n")}`);
+        break;
+      }
+
+      case "/close": {
+        if (!this.workspaceManager.isWorkspaceChat(chatId)) {
+          await this.larkClient.sendText(chatId, "❌ /close can only be used in a workspace group");
+          break;
+        }
+        const closed = await this.workspaceManager.close(chatId);
+        if (closed) {
+          await this.larkClient.sendText(chatId, "🗑 Workspace closing...");
+        } else {
+          await this.larkClient.sendText(chatId, "❌ Failed to close workspace");
+        }
         break;
       }
 

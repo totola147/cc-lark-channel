@@ -101,4 +101,30 @@ export class LarkClient {
     }
     return Buffer.concat(chunks);
   }
+
+  async createGroup(name: string, description: string, ownerOpenId: string): Promise<string> {
+    const res = await this.sdk.im.v1.chat.create({
+      params: { user_id_type: "open_id" },
+      data: {
+        name,
+        description,
+        chat_mode: "group",
+        chat_type: "private",
+        owner_id: ownerOpenId,
+      },
+    });
+    if (res.code !== 0) {
+      throw new Error(`Lark createGroup failed: code=${res.code} msg=${res.msg}`);
+    }
+    return res.data?.chat_id ?? "";
+  }
+
+  async dissolveGroup(chatId: string): Promise<void> {
+    const res = await this.sdk.im.v1.chat.delete({
+      path: { chat_id: chatId },
+    });
+    if (res.code !== 0) {
+      this.logger.warn({ chatId, code: res.code }, "Lark dissolveGroup failed");
+    }
+  }
 }
