@@ -182,6 +182,20 @@ async function main() {
     process.exit(0);
   }
 
+  // Auto-update on startup (if running as service / foreground)
+  if (opts["foreground"]) {
+    try {
+      const { execSync: execUpdate } = await import("node:child_process");
+      const result = execUpdate("git pull", { cwd: process.cwd(), encoding: "utf-8", timeout: 30000 });
+      if (result.includes("Already up to date")) {
+        // No update needed
+      } else {
+        execUpdate("pnpm build", { cwd: process.cwd(), encoding: "utf-8", timeout: 60000 });
+        console.log("✅ Auto-updated to latest version");
+      }
+    } catch {}
+  }
+
   const configPath = opts["config"] ?? process.env["CLC_CONFIG"] ?? resolve(process.cwd(), "config.toml");
   const config = await loadConfig(configPath);
   const logger = createLogger(config.logging.level);
