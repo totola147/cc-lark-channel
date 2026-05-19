@@ -289,6 +289,18 @@ async function main() {
 
   await transport.start();
   logger.info("cc-lark-channel ready — listening for messages");
+
+  // Notify after update restart
+  try {
+    const { readFileSync, unlinkSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const flagPath = join(process.cwd(), ".state", "update-restart.json");
+    const flag = JSON.parse(readFileSync(flagPath, "utf-8"));
+    unlinkSync(flagPath);
+    if (flag.chatId) {
+      await transport.sendText(flag.chatId, "✅ Update complete, service restarted");
+    }
+  } catch {}
 }
 
 main().catch((err) => {

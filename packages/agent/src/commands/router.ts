@@ -264,6 +264,8 @@ export class CommandRouter {
       case "/update": {
         try {
           const { execSync } = await import("node:child_process");
+          const { writeFileSync } = await import("node:fs");
+          const { join } = await import("node:path");
           const cwd = process.cwd();
           const pullResult = execSync("git pull", { cwd, encoding: "utf-8", timeout: 30000 });
           if (pullResult.includes("Already up to date")) {
@@ -272,7 +274,9 @@ export class CommandRouter {
           }
           await this.transport.sendText(chatId, "🔄 New version found, building...");
           execSync("pnpm build", { cwd, encoding: "utf-8", timeout: 60000 });
-          await this.transport.sendText(chatId, "✅ Updated. Restarting...");
+          await this.transport.sendText(chatId, "🔄 Restarting...");
+          const stateDir = join(cwd, ".state");
+          try { writeFileSync(join(stateDir, "update-restart.json"), JSON.stringify({ chatId })); } catch {}
           setTimeout(() => { process.exit(1); }, 1000);
         } catch (err) {
           await this.transport.sendText(chatId, `❌ Update failed: ${(err as Error).message.slice(0, 200)}`);
