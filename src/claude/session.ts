@@ -128,7 +128,23 @@ export class ClaudeSession {
     this.currentHandle = handle;
 
     try {
+      let receivedFirstEvent = false;
+      let startupTimer: ReturnType<typeof setTimeout> | null = null;
+
+      if (this.providerSessionId) {
+        startupTimer = setTimeout(async () => {
+          if (!receivedFirstEvent) {
+            this.logger.warn("Resume timeout — no events in 30s, retrying fresh");
+            await handle.interrupt();
+          }
+        }, 30000);
+      }
+
       for await (const event of handle.events) {
+        if (!receivedFirstEvent) {
+          receivedFirstEvent = true;
+          if (startupTimer) clearTimeout(startupTimer);
+        }
         await this.handleEvent(event);
       }
       // Capture session ID if available
@@ -137,7 +153,7 @@ export class ClaudeSession {
     } catch (err) {
       const msg = (err as Error).message ?? "";
       // Resume failed — retry without session ID
-      if ((msg.includes("No conversation found") || msg.includes("failed to launch")) && this.providerSessionId) {
+      if ((msg.includes("No conversation found") || msg.includes("failed to launch") || msg.includes("aborted")) && this.providerSessionId) {
         this.logger.warn("Resume failed, starting fresh session");
         this.providerSessionId = undefined;
         this.currentHandle = null;
