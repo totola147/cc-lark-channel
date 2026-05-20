@@ -230,23 +230,26 @@ export class CommandRouter {
 
       case "/workspace": {
         if (!cmd.args) {
-          await this.transport.sendText(chatId, "Usage: /workspace <path>\nCreate a workspace group for a project.");
+          await this.transport.sendText(chatId, "Usage: /workspace <path> [session-id]\nCreate a workspace group for a project.");
           break;
         }
-        const wsPath = cmd.args.replace(/^["']|["']$/g, "");
+        const wsParts = cmd.args.trim().split(/\s+/);
+        const wsPath = wsParts[0]!.replace(/^["']|["']$/g, "");
+        const wsSessionId = wsParts[1];
         try {
           const result = await this.workspaceManager.create(wsPath, msg.senderOpenId);
           if ("error" in result) {
             await this.transport.sendText(chatId, `❌ ${result.error}`);
             break;
           }
-          const latestSession = this.workspaceManager.getLatestSessionId(wsPath);
-          if (latestSession) {
-            const session = this.sessionManager.getOrCreateSession(result.chatId);
-            session.providerSessionId = latestSession;
-            session.cwd = wsPath;
+          const sessionId = wsSessionId || this.workspaceManager.getLatestSessionId(wsPath);
+          const session = this.sessionManager.getOrCreateSession(result.chatId);
+          session.cwd = wsPath;
+          if (sessionId) {
+            session.providerSessionId = sessionId;
           }
-          await this.transport.sendText(chatId, `✅ Workspace created: ${result.name}\n📂 ${wsPath}`);
+          const info = sessionId ? `\n🔗 Session: ${sessionId}` : "";
+          await this.transport.sendText(chatId, `✅ Workspace created: ${result.name}\n📂 ${wsPath}${info}`);
         } catch (err) {
           await this.transport.sendText(chatId, `❌ Workspace creation failed: ${(err as Error).message}`);
         }
