@@ -35,6 +35,19 @@ export class CommandRouter {
 
   async execute(cmd: CommandMatch, msg: IncomingMessage): Promise<void> {
     const { chatId } = msg;
+    const isGroup = this.workspaceManager.isWorkspaceChat(chatId);
+
+    // Scope enforcement
+    const privateOnly = ["/workspace", "/workspaces", "/update"];
+    const groupOnly = ["/close"];
+    if (privateOnly.includes(cmd.command) && isGroup) {
+      await this.transport.sendText(chatId, `⚠️ ${cmd.command} can only be used in private chat`);
+      return;
+    }
+    if (groupOnly.includes(cmd.command) && !isGroup) {
+      await this.transport.sendText(chatId, `⚠️ ${cmd.command} can only be used in a workspace group`);
+      return;
+    }
 
     switch (cmd.command) {
       case "/help":
@@ -252,10 +265,6 @@ export class CommandRouter {
       }
 
       case "/close": {
-        if (!this.workspaceManager.isWorkspaceChat(chatId)) {
-          await this.transport.sendText(chatId, "❌ /close can only be used in a workspace group");
-          break;
-        }
         const closed = await this.workspaceManager.close(chatId);
         if (closed) {
           await this.transport.sendText(chatId, "🗑 Workspace closing...");
