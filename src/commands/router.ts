@@ -283,6 +283,7 @@ export class CommandRouter {
           const { writeFileSync } = await import("node:fs");
           const { join } = await import("node:path");
           const cwd = process.cwd();
+          execSync(`git config --global --add safe.directory ${cwd}`, { encoding: "utf-8", timeout: 5000 });
           const pullResult = execSync("git pull", { cwd, encoding: "utf-8", timeout: 30000 });
           if (pullResult.includes("Already up to date")) {
             await this.larkClient.sendText(chatId, "✅ Already up to date");
