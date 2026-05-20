@@ -35,6 +35,19 @@ export class CommandRouter {
 
   async execute(cmd: CommandMatch, msg: IncomingMessage): Promise<void> {
     const { chatId } = msg;
+    const isGroup = this.workspaceManager.isWorkspaceChat(chatId);
+
+    // Scope enforcement
+    const privateOnly = ["/workspace", "/workspaces", "/update"];
+    const groupOnly = ["/close"];
+    if (privateOnly.includes(cmd.command) && isGroup) {
+      await this.larkClient.sendText(chatId, `⚠️ ${cmd.command} can only be used in private chat`);
+      return;
+    }
+    if (groupOnly.includes(cmd.command) && !isGroup) {
+      await this.larkClient.sendText(chatId, `⚠️ ${cmd.command} can only be used in a workspace group`);
+      return;
+    }
 
     switch (cmd.command) {
       case "/help":
@@ -221,19 +234,22 @@ export class CommandRouter {
           break;
         }
         const wsPath = cmd.args.replace(/^["']|["']$/g, "");
-        const result = await this.workspaceManager.create(wsPath, msg.senderOpenId);
-        if ("error" in result) {
-          await this.larkClient.sendText(chatId, `❌ ${result.error}`);
-          break;
+        try {
+          const result = await this.workspaceManager.create(wsPath, msg.senderOpenId);
+          if ("error" in result) {
+            await this.larkClient.sendText(chatId, `❌ ${result.error}`);
+            break;
+          }
+          const latestSession = this.workspaceManager.getLatestSessionId(wsPath);
+          if (latestSession) {
+            const session = this.sessionManager.getOrCreateSession(result.chatId);
+            session.providerSessionId = latestSession;
+            session.cwd = wsPath;
+          }
+          await this.larkClient.sendText(chatId, `✅ Workspace created: ${result.name}\n📂 ${wsPath}\nGroup: ${result.chatId}`);
+        } catch (err) {
+          await this.larkClient.sendText(chatId, `❌ Workspace creation failed: ${(err as Error).message}`);
         }
-        // Auto-attach latest CLI session if exists
-        const latestSession = this.workspaceManager.getLatestSessionId(wsPath);
-        if (latestSession) {
-          const session = this.sessionManager.getOrCreateSession(result.chatId);
-          session.providerSessionId = latestSession;
-          session.cwd = wsPath;
-        }
-        await this.larkClient.sendText(chatId, `✅ Workspace created: ${result.name}\n📂 ${wsPath}\nGroup: ${result.chatId}`);
         break;
       }
 
@@ -249,10 +265,6 @@ export class CommandRouter {
       }
 
       case "/close": {
-        if (!this.workspaceManager.isWorkspaceChat(chatId)) {
-          await this.larkClient.sendText(chatId, "❌ /close can only be used in a workspace group");
-          break;
-        }
         const closed = await this.workspaceManager.close(chatId);
         if (closed) {
           await this.larkClient.sendText(chatId, "🗑 Workspace closing...");
@@ -265,6 +277,8 @@ export class CommandRouter {
       case "/update": {
         try {
           const { execSync } = await import("node:child_process");
+          const { writeFileSync } = await import("node:fs");
+          const { join } = await import("node:path");
           const cwd = process.cwd();
           const pullResult = execSync("git pull", { cwd, encoding: "utf-8", timeout: 30000 });
           if (pullResult.includes("Already up to date")) {
@@ -273,7 +287,9 @@ export class CommandRouter {
           }
           await this.larkClient.sendText(chatId, "🔄 New version found, building...");
           execSync("npm run build", { cwd, encoding: "utf-8", timeout: 60000 });
-          await this.larkClient.sendText(chatId, "✅ Updated. Restarting...");
+          await this.larkClient.sendText(chatId, "🔄 Restarting...");
+          const stateDir = join(cwd, ".state");
+          try { writeFileSync(join(stateDir, "update-restart.json"), JSON.stringify({ chatId })); } catch {}
           setTimeout(() => { process.exit(1); }, 1000);
         } catch (err) {
           await this.larkClient.sendText(chatId, `❌ Update failed: ${(err as Error).message.slice(0, 200)}`);
