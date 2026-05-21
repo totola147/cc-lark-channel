@@ -10,7 +10,14 @@ import type { AgentToRelay } from "@cc-lark/protocol";
 const PORT = parseInt(process.env["RELAY_PORT"] ?? "9000", 10);
 const LARK_APP_ID = process.env["LARK_APP_ID"] ?? "";
 const LARK_APP_SECRET = process.env["LARK_APP_SECRET"] ?? "";
-const RELAY_BASE_URL = process.env["RELAY_BASE_URL"] ?? `http://localhost:${PORT}`;
+const RELAY_BASE_URL = process.env["RELAY_BASE_URL"] ?? "";
+
+function getBaseUrl(req: import("node:http").IncomingMessage): string {
+  if (RELAY_BASE_URL) return RELAY_BASE_URL;
+  const host = req.headers.host ?? `localhost:${PORT}`;
+  const proto = req.headers["x-forwarded-proto"] ?? "http";
+  return `${proto}://${host}`;
+}
 
 const logger = pino({
   level: process.env["LOG_LEVEL"] ?? "info",
@@ -45,7 +52,8 @@ async function main() {
 
     // OAuth: redirect to Lark
     if (req.method === "GET" && url.pathname === "/auth") {
-      const redirectUri = encodeURIComponent(`${RELAY_BASE_URL}/auth/callback`);
+      const baseUrl = getBaseUrl(req);
+      const redirectUri = encodeURIComponent(`${baseUrl}/auth/callback`);
       const larkAuthUrl = `https://open.feishu.cn/open-apis/authen/v1/authorize?app_id=${LARK_APP_ID}&redirect_uri=${redirectUri}&response_type=code`;
       res.writeHead(302, { Location: larkAuthUrl });
       res.end();
@@ -60,7 +68,7 @@ async function main() {
       try {
         const openId = await exchangeCodeForOpenId(code);
         // Redirect to landing page with open_id
-        res.writeHead(302, { Location: `${RELAY_BASE_URL}/#authenticated&open_id=${openId}` });
+        res.writeHead(302, { Location: `${getBaseUrl(req)}/#authenticated&open_id=${openId}` });
         res.end();
       } catch (err) {
         logger.error({ err }, "OAuth callback failed");
@@ -207,7 +215,7 @@ async function main() {
   await larkBot.start();
 
   httpServer.listen(PORT, () => {
-    logger.info({ port: PORT, baseUrl: RELAY_BASE_URL }, "Relay server started");
+    logger.info({ port: PORT, baseUrl: RELAY_BASE_URL || "(dynamic from Host header)" }, "Relay server started");
   });
 
   process.on("SIGINT", () => { process.exit(0); });
