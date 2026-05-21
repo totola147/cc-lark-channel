@@ -313,9 +313,12 @@ const HELP_TEXT = `cc-lark-channel commands:
 /bg [name] — Move current session to background
 /fg <id> — Bring session to foreground
 /kill <id> — Kill a background session
-/attach <id> — Attach to an existing CLI session
-/update — Pull latest code and restart
 /kill all — Kill all sessions
+/attach <id> — Attach to an existing CLI session
+/workspace <path> [session-id] — Create a workspace group for a project
+/workspaces — List all workspace groups
+/close — Close current workspace group
+/update — Pull latest code and restart
 /mode <mode> — Set permission mode
 /model <name> — Switch model
 /cd <path> — Change working directory
