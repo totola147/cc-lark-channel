@@ -11,6 +11,8 @@ import { StateStore } from "./persistence/store.js";
 import { CommandRouter } from "./commands/router.js";
 import { PermissionBroker } from "./claude/permission-broker.js";
 import { WorkspaceManager } from "./workspace/manager.js";
+import { IpcServer } from "./ipc/server.js";
+import { getLiveSessionOwner } from "./claude/session-registry.js";
 
 const TOKEN_PATH = resolve(homedir(), ".cc-lark-channel/relay.json");
 
@@ -205,6 +207,7 @@ async function main() {
   await stateStore.load();
 
   let transport: Transport & { setEvents(e: TransportEvents): void };
+  let ownerOpenId = "";
 
   // Determine mode: check saved relay config if no explicit args
   const savedRelay = await loadSavedRelay();
@@ -255,19 +258,74 @@ async function main() {
     }
 
     logger.info({ relayUrl, openId }, "cc-lark-channel starting (relay mode)");
+    ownerOpenId = openId;
     transport = new RelayTransport({ relayUrl, openId }, logger);
   }
 
   const permissionBroker = new PermissionBroker(config.claude, transport, logger);
   const workspaceManager = new WorkspaceManager(transport, stateStore, logger);
   const sessionManager = new SessionManager(config, stateStore, permissionBroker, transport, logger);
-  const commandRouter = new CommandRouter(sessionManager, transport, config, workspaceManager, logger);
+
+  // Local IPC: terminal tools (cc-transfer / cc-session) talk to the agent.
+  const ipcServer = new IpcServer(
+    {
+      onTransfer: async ({ sessionId, cwd, hasWrapper }) => {
+        // Safety gate: do not take over a session still held by a live terminal.
+        // The wrapper kills claude before transferring, so by now it should be dead.
+        const owner = getLiveSessionOwner(sessionId);
+        if (owner) {
+          throw new Error(
+            `会话 ${sessionId} 仍被终端进程持有 (PID ${owner.pid})。请先退出终端会话再转移。`,
+          );
+        }
+        if (!ownerOpenId) {
+          throw new Error("无法确定群主 open_id（relay 模式未配对？）");
+        }
+        const res = await workspaceManager.findOrCreateForSession(cwd, sessionId, ownerOpenId);
+        if ("error" in res) throw new Error(res.error);
+
+        // Bind the agent session to this group + resume the same Claude session.
+        const session = sessionManager.getOrCreateSession(res.record.chatId);
+        session.cwd = cwd;
+        session.providerSessionId = sessionId;
+
+        const note = hasWrapper ? "" : "\n（终端未使用 cc-session 包装器，交还时需手动 claude --resume）";
+        await transport.sendText(
+          res.record.chatId,
+          `🔄 会话 ${sessionId} 已转移至该群组，请继续。${note}`,
+        );
+        return { chatId: res.record.chatId, message: res.created ? "group created" : "group reused" };
+      },
+    },
+    logger,
+  );
+
+  const commandRouter = new CommandRouter(
+    sessionManager,
+    transport,
+    config,
+    workspaceManager,
+    logger,
+    {
+      pushResume: (sessionId: string) => ipcServer.pushResume(sessionId),
+      hasWrapper: (sessionId: string) => ipcServer.hasWrapper(sessionId),
+    },
+  );
 
   transport.setEvents({
     onMessage: async (msg) => {
       const cmdResult = commandRouter.match(msg);
       if (cmdResult) {
         await commandRouter.execute(cmdResult, msg);
+        return;
+      }
+      // If the group was handed back to the terminal, refuse to write to the
+      // session until it is re-transferred (avoids two writers on one session).
+      if (workspaceManager.isReleased(msg.chatId)) {
+        await transport.sendText(
+          msg.chatId,
+          "⏸ 该会话已交还终端 (cc cli)。如需在飞书继续，请在终端重新执行 cc-transfer 转移。",
+        );
         return;
       }
       await sessionManager.handleMessage(msg);
@@ -282,12 +340,16 @@ async function main() {
 
   async function shutdown(signal: string) {
     logger.info({ signal }, "Shutting down");
+    await ipcServer.stop().catch(() => {});
     await sessionManager.shutdown();
     await stateStore.save();
     process.exit(0);
   }
 
   await transport.start();
+  await ipcServer.start().catch((err) => {
+    logger.warn({ err }, "IPC server failed to start — terminal transfer/handback unavailable");
+  });
   logger.info("cc-lark-channel ready — listening for messages");
 
   // Notify after update restart

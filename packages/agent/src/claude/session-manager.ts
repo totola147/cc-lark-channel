@@ -265,7 +265,7 @@ export class SessionManager {
   private persistChat(chatId: string): void {
     const chat = this.chats.get(chatId);
     if (!chat) return;
-    const sessions: Record<string, { id: string; providerSessionId?: string; name?: string; cwd: string; createdAt: string; lastActiveAt: string; permissionMode: string; model: string }> = {};
+    const sessions: Record<string, { id: string; providerSessionId?: string; name?: string; cwd: string; createdAt: string; lastActiveAt: string; permissionMode: PermissionMode; model: string }> = {};
     for (const [id, s] of chat.sessions) {
       sessions[id] = {
         id: s.id,
