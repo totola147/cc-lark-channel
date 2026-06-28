@@ -32,6 +32,8 @@ export interface WorkspaceRecord {
   description: string;
   createdAt: string;
   ownerOpenId: string;
+  sessionId?: string;
+  released?: boolean;
 }
 
 const INITIAL_STATE: StateData = { version: 2, chats: {} };
@@ -88,6 +90,16 @@ export class StateStore {
 
   getAllChats(): Record<string, ChatRecord> {
     return { ...this.state.chats };
+  }
+
+  /** Shallow copy of each chat's foreground session, keyed by chatId. */
+  getAllSessions(): Record<string, SessionRecord> {
+    const out: Record<string, SessionRecord> = {};
+    for (const [chatId, chat] of Object.entries(this.state.chats)) {
+      const fg = chat.sessions[chat.foregroundId];
+      if (fg) out[chatId] = fg;
+    }
+    return out;
   }
 
   // Legacy compat

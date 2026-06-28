@@ -4,10 +4,18 @@ import type { WorkspaceManager } from "../workspace/manager.js";
 import type { AppConfig } from "../config.js";
 import type { IncomingMessage, PermissionMode } from "../types.js";
 import type { Logger } from "../util/logger.js";
+import { getLiveSessionOwner } from "../claude/session-registry.js";
 
 interface CommandMatch {
   command: string;
   args: string;
+}
+
+export interface HandbackHooks {
+  /** Push a resume signal to the terminal wrapper holding this session. Returns true if delivered. */
+  pushResume(sessionId: string): boolean;
+  /** Whether a terminal wrapper is currently registered for this session. */
+  hasWrapper(sessionId: string): boolean;
 }
 
 export class CommandRouter {
@@ -17,6 +25,7 @@ export class CommandRouter {
     private readonly config: AppConfig,
     private readonly workspaceManager: WorkspaceManager,
     _logger: Logger,
+    private readonly handback?: HandbackHooks,
   ) {}
 
   match(msg: IncomingMessage): CommandMatch | null {
@@ -27,7 +36,7 @@ export class CommandRouter {
     const command = spaceIdx === -1 ? text : text.slice(0, spaceIdx);
     const args = spaceIdx === -1 ? "" : text.slice(spaceIdx + 1).trim();
 
-    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/cd", "/bg", "/fg", "/kill", "/attach", "/update", "/workspace", "/workspaces", "/close", "/help"];
+    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/cd", "/bg", "/fg", "/kill", "/attach", "/update", "/workspace", "/workspaces", "/close", "/handback", "/help"];
     if (!known.includes(command)) return null;
 
     return { command, args };
@@ -237,12 +246,32 @@ export class CommandRouter {
         const wsPath = wsParts[0]!.replace(/^["']|["']$/g, "");
         const wsSessionId = wsParts[1];
         try {
+          const resumeId = wsSessionId || this.workspaceManager.getLatestSessionId(wsPath);
+
+          // 接管闸门：拒绝接管仍被活终端持有的会话（防双写）。
+          if (resumeId) {
+            const owner = getLiveSessionOwner(resumeId);
+            if (owner) {
+              await this.larkClient.sendText(
+                chatId,
+                [
+                  `⛔ 无法接管会话 ${resumeId}`,
+                  `该会话仍在终端中运行 (PID ${owner.pid}, 状态 ${owner.status})。`,
+                  ``,
+                  `请先在终端退出该会话，然后重试本命令。`,
+                  `或使用 /new 在该项目下开启一个全新会话。`,
+                ].join("\n"),
+              );
+              break;
+            }
+          }
+
           const result = await this.workspaceManager.create(wsPath, msg.senderOpenId);
           if ("error" in result) {
             await this.larkClient.sendText(chatId, `❌ ${result.error}`);
             break;
           }
-          const sessionId = wsSessionId || this.workspaceManager.getLatestSessionId(wsPath);
+          const sessionId = resumeId;
           const session = this.sessionManager.getOrCreateSession(result.chatId);
           session.cwd = wsPath;
           if (sessionId) {
@@ -273,6 +302,43 @@ export class CommandRouter {
           await this.larkClient.sendText(chatId, "🗑 Workspace closing...");
         } else {
           await this.larkClient.sendText(chatId, "❌ Failed to close workspace");
+        }
+        break;
+      }
+
+      case "/handback": {
+        const ws = this.workspaceManager.getByChatId(chatId);
+        if (!ws || !ws.sessionId) {
+          await this.larkClient.sendText(chatId, "❌ 当前群组没有绑定的会话，无法交还。");
+          break;
+        }
+        const sessionId = ws.sessionId;
+
+        const session = this.sessionManager.getSession(chatId);
+        if (session && session.getState() !== "idle") {
+          await this.larkClient.sendText(chatId, "⚠️ 当前有任务正在执行，请等待完成或先 /stop 再交还。");
+          break;
+        }
+
+        if (session) await session.interrupt();
+        await this.workspaceManager.release(chatId);
+
+        const delivered = this.handback?.pushResume(sessionId) ?? false;
+        if (delivered) {
+          await this.larkClient.sendText(
+            chatId,
+            `↩️ 已交还会话 ${sessionId} 至终端，正在重新激活 cc cli...`,
+          );
+        } else {
+          await this.larkClient.sendText(
+            chatId,
+            [
+              `↩️ 已释放会话 ${sessionId}。`,
+              `终端未连接 cc-session 包装器，请在终端手动恢复：`,
+              ``,
+              `    claude --resume ${sessionId}`,
+            ].join("\n"),
+          );
         }
         break;
       }
