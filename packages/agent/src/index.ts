@@ -13,6 +13,7 @@ import { PermissionBroker } from "./claude/permission-broker.js";
 import { WorkspaceManager } from "./workspace/manager.js";
 import { IpcServer } from "./ipc/server.js";
 import { getLiveSessionOwner } from "./claude/session-registry.js";
+import { buildRecap } from "./claude/session-recap.js";
 
 const TOKEN_PATH = resolve(homedir(), ".cc-lark-channel/relay.json");
 
@@ -294,7 +295,16 @@ async function main() {
           res.record.chatId,
           `🔄 会话 ${sessionId} 已转移至该群组，请继续。${note}`,
         );
-        return { chatId: res.record.chatId, message: res.created ? "group created" : "group reused" };
+
+        // 贴出最近几轮对话，让飞书侧立刻看到之前聊到哪。
+        try {
+          const recap = buildRecap(cwd, sessionId, 3);
+          if (recap) await transport.sendText(res.record.chatId, recap);
+        } catch (err) {
+          logger.warn({ err, sessionId }, "Failed to build recap");
+        }
+
+        return { chatId: res.record.chatId, message: res.created ? "group created" : "group reused", groupName: res.record.name };
       },
     },
     logger,

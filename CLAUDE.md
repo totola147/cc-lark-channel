@@ -136,6 +136,27 @@ Lark SDK 的 WSClient 在 ESM 模式下不触发事件。构建输出为 CJS 格
 | 图片支持 | `session-manager.ts` + transport | 下载 → base64 → Claude |
 | 配对 | `relay/pairing.ts` | 6 位码 + token |
 | Claude Code Skill | `skill/lark-channel.md` | 说"连飞书"自动完成 |
+| 双向会话交接 | `bin/cc-session.mjs` + `ipc/` + `claude/session-registry.ts` | 终端 ↔ 飞书，详见下节 |
+| 转移快捷键 | `~/.claude/keybindings.json` + `skill/commands/transfer.md` | claude 内按 `Ctrl+K` 触发 |
+| 对话回顾 | `claude/session-recap.ts` | 转移时贴出最近 3 轮对话 |
+
+## 双向会话交接（终端 ↔ 飞书）
+
+让同一个 Claude Code 会话在终端和飞书之间来回接管。核心：会话 id 稳定（resume 不 fork），两端共享同一份 `~/.claude/projects/<编码cwd>/<sessionId>.jsonl` 历史。
+
+**组件**
+- `bin/cc-session.mjs` — claude 生命周期包装器（代替直接 `claude`）。注入 PATH/环境、写发现文件 `~/.cc-lark-channel/wrappers/<pid>.json`、收 SIGUSR1 触发转移、收 relay 的 resume 推送时重启 claude。透传所有 claude 参数；单独解析 `--resume <id>` 避免与交还冲突；正常退出时打印 sessionID。
+- `bin/cc-transfer.mjs` — 触发转移：在 claude 内（环境变量 `CC_LARK_WRAPPER_PID`）直接发信号；带外则从发现文件找到 wrapper 发信号。
+- `ipc/`（protocol + server）— agent 在 `~/.cc-lark-channel/agent.sock` 监听本地 Unix socket，处理终端工具的 register/transfer，并向 wrapper 推送 resume。
+- `claude/session-registry.ts` — 读 `~/.claude/sessions/<pid>.json` 判断会话是否仍被活终端持有，作为接管闸门。
+
+**终端 → 飞书**：`cc-session` 起会话 → 按 `Ctrl+K`（或带外 `cc-transfer`）→ agent 建/复用 workspace 群、绑定会话、贴最近 3 轮回顾 → claude 退出、wrapper 等待。
+
+**飞书 → 终端**：群里发 `/handback` → agent 解绑并经 socket 推 resume → wrapper 在原终端 `claude --resume` 恢复。无 wrapper 时提示手动 `claude --resume <id>`。
+
+**安全**：`/workspace`/transfer 前用 session-registry 闸门拒绝接管仍被活终端持有的会话；交还后 `released` 守卫阻止飞书侧再写入，避免双写。
+
+**注意**：同一飞书 openId 在 relay 端是单连接模型（后连接踢掉先连接，消息只发最后注册者）。多个 agent 共用同一 openId 会串台。
 
 ## 参考项目
 

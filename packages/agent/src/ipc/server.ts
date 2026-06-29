@@ -12,7 +12,7 @@ export interface TransferRequest {
 
 export interface IpcHandlers {
   /** Take over a session in Feishu. Returns the chatId of the workspace group. */
-  onTransfer(req: TransferRequest): Promise<{ chatId: string; message: string }>;
+  onTransfer(req: TransferRequest): Promise<{ chatId: string; message: string; groupName: string }>;
 }
 
 interface Wrapper {
@@ -102,7 +102,7 @@ export class IpcServer {
           cwd: msg.cwd,
           hasWrapper: msg.hasWrapper,
         });
-        this.send(socket, { type: "ok", message: result.message, chatId: result.chatId });
+        this.send(socket, { type: "ok", message: result.message, chatId: result.chatId, groupName: result.groupName });
         return;
       }
 
@@ -112,11 +112,16 @@ export class IpcServer {
     }
   }
 
-  /** Push a hand-back signal to the wrapper holding this session. Returns true if delivered. */
-  pushResume(sessionId: string): boolean {
-    const wrapper = this.wrappers.get(sessionId);
+  /**
+   * Push a hand-back signal to the wrapper holding `lookupId` (the id it
+   * registered with at transfer time). `resumeId` is the session the terminal
+   * should actually resume — it may differ because the Agent SDK forks a new
+   * session id during Feishu turns. Defaults to lookupId. Returns true if delivered.
+   */
+  pushResume(lookupId: string, resumeId?: string): boolean {
+    const wrapper = this.wrappers.get(lookupId);
     if (!wrapper) return false;
-    this.send(wrapper.socket, { type: "resume", sessionId });
+    this.send(wrapper.socket, { type: "resume", sessionId: resumeId ?? lookupId });
     return true;
   }
 

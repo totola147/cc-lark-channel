@@ -4,7 +4,11 @@
   "description": "Local agent for cc-lark-channel — bridges Claude Code to Lark/Feishu",
   "type": "module",
   "engines": { "node": ">=22.0.0" },
-  "bin": { "clc": "./dist/index.cjs" },
+  "bin": {
+    "clc": "./dist/index.cjs",
+    "cc-session": "./bin/cc-session.mjs",
+    "cc-transfer": "./bin/cc-transfer.mjs"
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsx src/index.ts",

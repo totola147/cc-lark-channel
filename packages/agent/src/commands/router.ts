@@ -12,8 +12,8 @@ interface CommandMatch {
 }
 
 export interface HandbackHooks {
-  /** Push a resume signal to the terminal wrapper holding this session. Returns true if delivered. */
-  pushResume(sessionId: string): boolean;
+  /** Push a resume signal to the wrapper registered as `lookupId`, telling it to resume `resumeId`. */
+  pushResume(lookupId: string, resumeId?: string): boolean;
   /** Whether a terminal wrapper is currently registered for this session. */
   hasWrapper(sessionId: string): boolean;
 }
@@ -315,7 +315,6 @@ export class CommandRouter {
           await this.transport.sendText(chatId, "❌ 当前群组没有绑定的会话，无法交还。");
           break;
         }
-        const sessionId = ws.sessionId;
 
         // Do not hand back while a turn is running — would race the terminal.
         const session = this.sessionManager.getSession(chatId);
@@ -323,6 +322,11 @@ export class CommandRouter {
           await this.transport.sendText(chatId, "⚠️ 当前有任务正在执行，请等待完成或先 /stop 再交还。");
           break;
         }
+
+        // Claude Agent SDK 的 resume 会 fork 出新 session id，飞书的对话写入了
+        // 这个新 id。优先用内存 session 对象的最新 providerSessionId，
+        // 否则终端会 resume 到不含飞书对话的旧会话。
+        const sessionId = session?.providerSessionId || ws.sessionId;
 
         // Stop the agent owning the session and mark the group released.
         if (session) await session.interrupt();

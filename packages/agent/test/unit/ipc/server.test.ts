@@ -107,6 +107,19 @@ describe("IpcServer", () => {
     c.close();
   });
 
+  it("pushResume sends the forked resumeId while looking up by registered id", async () => {
+    const c = client(sockPath);
+    // wrapper registered with the original transfer id
+    c.send({ type: "register", sessionId: "orig", cwd: "/p", wrapperPid: 9 });
+    await c.next(); // ok
+    // SDK forked a new id during Feishu turns; hand back should resume the new one
+    const delivered = server.pushResume("orig", "forked-id");
+    expect(delivered).toBe(true);
+    const resume = await c.next();
+    expect(resume).toEqual({ type: "resume", sessionId: "forked-id" });
+    c.close();
+  });
+
   it("pushResume returns false when no wrapper registered", () => {
     expect(server.pushResume("nope")).toBe(false);
     expect(server.hasWrapper("nope")).toBe(false);

@@ -27,7 +27,7 @@ export type IpcRequest =
 
 /** Agent -> Client */
 export type IpcResponse =
-  | { type: "ok"; message?: string; chatId?: string }
+  | { type: "ok"; message?: string; chatId?: string; groupName?: string }
   | { type: "error"; message: string }
   // pushed to a registered wrapper to tell it to relaunch claude --resume
   | { type: "resume"; sessionId: string };
