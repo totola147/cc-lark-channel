@@ -66,6 +66,9 @@ function spawnClaude(resumeId) {
   child.on("exit", (code) => {
     if (intentionalKill) {
       intentionalKill = false; // 转移触发，等待 resume，不退出包装器
+      // claude 已退出，置空 child：等待 handback 期间 Ctrl+C 才能让 wrapper 退出
+      // （否则信号处理器会去 kill 已死进程，导致卡死）。
+      child = null;
       // claude 已真正退出（PID 已死），现在发起 transfer 才能通过 agent 的存活闸门。
       if (pendingTransfer) {
         const { sessionId, cwd } = pendingTransfer;
@@ -192,7 +195,7 @@ function handleControlMessage(msg) {
   } else if (msg.type === "ok" && msg.chatId) {
     // transfer 成功响应（带群名）；register 的 ok 无 chatId，忽略。
     const name = msg.groupName ? `「${msg.groupName}」` : "";
-    log(`已转移至飞书群${name}，等待该群 /handback 交还...`);
+    log(`已转移至飞书群${name}，等待该群 /handback 交还...（若群已关闭/不再交还，按 Ctrl+C 退出）`);
   } else if (msg.type === "error") {
     log(`agent 报错：${msg.message}`);
   }
