@@ -10,6 +10,7 @@ import { PermissionBroker } from "./claude/permission-broker.js";
 import { WorkspaceManager } from "./workspace/manager.js";
 import { IpcServer } from "./ipc/server.js";
 import { getLiveSessionOwner } from "./claude/session-registry.js";
+import { buildRecap } from "./claude/session-recap.js";
 
 const CONFIG_PATH = process.env["CLC_CONFIG"] ?? resolve(process.cwd(), "config.toml");
 
@@ -65,7 +66,16 @@ async function main() {
           res.record.chatId,
           `🔄 会话 ${sessionId} 已转移至该群组，请继续。${note}`,
         );
-        return { chatId: res.record.chatId, message: res.created ? "group created" : "group reused" };
+
+        // 贴出最近几轮对话，让飞书侧立刻看到之前聊到哪。
+        try {
+          const recap = buildRecap(cwd, sessionId, 3);
+          if (recap) await larkClient.sendText(res.record.chatId, recap);
+        } catch (err) {
+          logger.warn({ err, sessionId }, "Failed to build recap");
+        }
+
+        return { chatId: res.record.chatId, message: res.created ? "group created" : "group reused", groupName: res.record.name };
       },
     },
     logger,
@@ -78,7 +88,7 @@ async function main() {
     workspaceManager,
     logger,
     {
-      pushResume: (sessionId: string) => ipcServer.pushResume(sessionId),
+      pushResume: (lookupId: string, resumeId?: string) => ipcServer.pushResume(lookupId, resumeId),
       hasWrapper: (sessionId: string) => ipcServer.hasWrapper(sessionId),
     },
   );

@@ -8,7 +8,9 @@
     "node": ">=22.0.0"
   },
   "bin": {
-    "clc": "./dist/index.cjs"
+    "clc": "./dist/index.cjs",
+    "cc-session": "./bin/cc-session.mjs",
+    "cc-transfer": "./bin/cc-transfer.mjs"
   },
   "scripts": {
     "build": "tsup",

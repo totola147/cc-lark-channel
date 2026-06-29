@@ -125,6 +125,22 @@ src/
 | 会话持久化 | `session-manager.ts` + `store.ts` | JSON 原子写入，重启可恢复 |
 | 图片支持 | `session-manager.ts` + `client.ts` | 接收飞书图片 → 下载 → 传给 Claude |
 | 访问控制 | `gateway.ts` | open_id 白名单，未授权可忽略或拒绝并回显 ID |
+| 双向会话交接 | `bin/cc-session.mjs` + `ipc/` + `claude/session-registry.ts` | 终端 ↔ 飞书，详见下节 |
+| 对话回顾 | `claude/session-recap.ts` | 转移时贴出最近 3 轮对话 |
+
+## 双向会话交接（终端 ↔ 飞书）
+
+让同一个 Claude Code 会话在终端和飞书之间来回接管。核心：会话 id 稳定（resume 不 fork），两端共享同一份 `~/.claude/projects/<编码cwd>/<sessionId>.jsonl` 历史。
+
+**组件**
+- `bin/cc-session.mjs` — claude 生命周期包装器（代替直接 `claude`）。注入 PATH/环境、写发现文件 `~/.cc-lark-channel/wrappers/<pid>.json`、收 SIGUSR1 触发转移、收 resume 推送时重启 claude。透传所有 claude 参数；单独解析 `--resume <id>`；正常退出时打印 sessionID。安装为全局命令后用 `Ctrl+K`（`~/.claude/keybindings.json`）或带外 `cc-transfer` 触发。
+- `bin/cc-transfer.mjs` — 触发转移：claude 内（环境变量 `CC_LARK_WRAPPER_PID`）直接发信号；带外从发现文件找到 wrapper 发信号。
+- `ipc/`（protocol + server）— agent 在 `~/.cc-lark-channel/agent.sock` 监听本地 Unix socket，处理 register/transfer，并向 wrapper 推送 resume。
+- `claude/session-registry.ts` — 读 `~/.claude/sessions/<pid>.json` 判断会话是否仍被活终端持有，作为接管闸门。
+
+**终端 → 飞书**：`cc-session` 起会话 → `Ctrl+K`/`cc-transfer` → agent 建/复用群、绑定会话、贴最近 3 轮回顾 → claude 退出、wrapper 等待。
+**飞书 → 终端**：群里 `/handback` → agent 解绑并推 resume → wrapper 在原终端 `claude --resume` 恢复。
+**安全**：接管前用闸门拒绝接管仍被活终端持有的会话；交还后 `released` 守卫阻止飞书侧再写入，避免双写。
 
 ## 参考项目
 
