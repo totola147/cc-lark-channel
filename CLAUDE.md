@@ -195,6 +195,7 @@ LARK_APP_ID=xxx LARK_APP_SECRET=xxx pm2 start dist/index.cjs --name cc-lark-rela
 
 - **同一飞书 openId 单连接**：relay 端 `userToAgent` 是 `openId → 单个 agentId` 映射，后连接踢掉先连接，飞书消息只发最后注册者。**多个 agent 共用同一 openId 会串台**（曾导致"飞书消息被错误 agent 处理、cwd/历史不对"）。排查此类问题先确认同一 openId 是否有多个 agent 在线（本机 + 远端 `/opt`）。
 - **部署会拉起 direct agent**：`deploy.yml`（push 到 main 触发）会在服务器 `pm2 start cc-lark-channel`（`/opt/cc-lark-channel` 的直连 agent）。若该 direct agent 与共享 relay 用同一 openId，部署后会重新出现串台。需要时 `pm2 stop cc-lark-channel` 停掉。
+- **转移等待态退出**：cc-session 转移到飞书后若群被关闭、不再 `/handback`，按 Ctrl+C 退出等待态（claude 退出时已置 `child = null`，信号处理器走 `process.exit`）。
 
 ## 配置文件
 
