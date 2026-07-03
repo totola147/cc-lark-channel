@@ -14,6 +14,9 @@ import { WorkspaceManager } from "./workspace/manager.js";
 import { IpcServer } from "./ipc/server.js";
 import { getLiveSessionOwner } from "./claude/session-registry.js";
 import { buildRecap } from "./claude/session-recap.js";
+import type { PermissionMode } from "./types.js";
+
+const VALID_PERMISSION_MODES: PermissionMode[] = ["default", "acceptEdits", "bypassPermissions"];
 
 const TOKEN_PATH = resolve(homedir(), ".cc-lark-channel/relay.json");
 
@@ -270,7 +273,7 @@ async function main() {
   // Local IPC: terminal tools (cc-transfer / cc-session) talk to the agent.
   const ipcServer = new IpcServer(
     {
-      onTransfer: async ({ sessionId, cwd, hasWrapper }) => {
+      onTransfer: async ({ sessionId, cwd, hasWrapper, permissionMode, model }) => {
         // Safety gate: do not take over a session still held by a live terminal.
         // The wrapper kills claude before transferring, so by now it should be dead.
         const owner = getLiveSessionOwner(sessionId);
@@ -289,6 +292,20 @@ async function main() {
         const session = sessionManager.getOrCreateSession(res.record.chatId);
         session.cwd = cwd;
         session.providerSessionId = sessionId;
+
+        // Carry over the terminal's launch-time permission mode / model so the
+        // Feishu-side session behaves the same (e.g. --dangerously-skip-permissions
+        // → bypassPermissions), instead of falling back to the agent's config default.
+        if (permissionMode) {
+          if (VALID_PERMISSION_MODES.includes(permissionMode as PermissionMode)) {
+            session.permissionMode = permissionMode as PermissionMode;
+          } else {
+            logger.warn({ sessionId, permissionMode }, "Unsupported permission mode from terminal, ignoring");
+          }
+        }
+        if (model) {
+          session.model = model;
+        }
 
         const note = hasWrapper ? "" : "\n（终端未使用 cc-session 包装器，交还时需手动 claude --resume）";
         await transport.sendText(

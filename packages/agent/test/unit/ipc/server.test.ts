@@ -87,6 +87,26 @@ describe("IpcServer", () => {
     c.close();
   });
 
+  it("forwards permissionMode and model from the terminal's launch flags", async () => {
+    const c = client(sockPath);
+    c.send({
+      type: "transfer",
+      sessionId: "s5",
+      cwd: "/proj",
+      hasWrapper: true,
+      permissionMode: "bypassPermissions",
+      model: "claude-opus-4",
+    });
+    const resp = await c.next();
+    expect(resp.type).toBe("ok");
+    expect(transfers[0]).toMatchObject({
+      sessionId: "s5",
+      permissionMode: "bypassPermissions",
+      model: "claude-opus-4",
+    });
+    c.close();
+  });
+
   it("returns error when handler throws", async () => {
     const c = client(sockPath);
     c.send({ type: "transfer", sessionId: "boom", cwd: "/x", hasWrapper: true });

@@ -29,8 +29,12 @@ let pendingTransfer = null; // 待发起的转移 {sessionId, cwd}，在 claude 
 
 // 解析启动参数：把 --resume <id>（或 -r <id> / --resume=<id>）单独提取出来作为初始恢复会话，
 // 其余参数（如 --dangerously-skip-permissions、--model 等）全部原样透传给 claude。
+// 同时（不摘除、只是识别）记录权限模式 / 模型，转移到飞书时带给 agent，
+// 让飞书侧会话延续同样的权限模式和模型，而不是回落到 agent 配置默认值。
 let initialResumeId;
 let extraArgs = [];
+let transferPermissionMode; // "bypassPermissions" | "acceptEdits" | "default" | undefined
+let transferModel;
 {
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
@@ -40,6 +44,21 @@ let extraArgs = [];
       else { extraArgs.push(a); } // 裸 --resume（交互式选择会话）：原样透传给 claude
     } else if (a.startsWith("--resume=")) {
       initialResumeId = a.slice("--resume=".length);
+    } else if (a === "--dangerously-skip-permissions" || a === "--allow-dangerously-skip-permissions") {
+      transferPermissionMode = "bypassPermissions";
+      extraArgs.push(a);
+    } else if (a === "--permission-mode") {
+      if (argv[i + 1]) transferPermissionMode = argv[i + 1];
+      extraArgs.push(a);
+    } else if (a.startsWith("--permission-mode=")) {
+      transferPermissionMode = a.slice("--permission-mode=".length);
+      extraArgs.push(a);
+    } else if (a === "--model") {
+      if (argv[i + 1]) transferModel = argv[i + 1];
+      extraArgs.push(a);
+    } else if (a.startsWith("--model=")) {
+      transferModel = a.slice("--model=".length);
+      extraArgs.push(a);
     } else {
       extraArgs.push(a);
     }
@@ -206,7 +225,14 @@ function doTransferAndWait(sessionId, cwd) {
   const send = () => {
     // 先注册持久控制连接（用于接收 resume），再发起 transfer。
     c.write(JSON.stringify({ type: "register", sessionId, cwd, wrapperPid: process.pid }) + "\n");
-    c.write(JSON.stringify({ type: "transfer", sessionId, cwd, hasWrapper: true }) + "\n");
+    c.write(JSON.stringify({
+      type: "transfer",
+      sessionId,
+      cwd,
+      hasWrapper: true,
+      permissionMode: transferPermissionMode,
+      model: transferModel,
+    }) + "\n");
     log(`正在请求转移会话 ${sessionId} 至飞书...`);
   };
   if (c.connecting) c.once("connect", send); else send();

@@ -20,8 +20,18 @@ export function ipcSocketPath(): string {
 export type IpcRequest =
   // wrapper registers a persistent control channel for a session
   | { type: "register"; sessionId: string; cwd: string; wrapperPid: number }
-  // ask agent to take over a session in Feishu (create/associate group + bind)
-  | { type: "transfer"; sessionId: string; cwd: string; hasWrapper: boolean }
+  // ask agent to take over a session in Feishu (create/associate group + bind).
+  // permissionMode/model carry the terminal's launch flags (e.g.
+  // --dangerously-skip-permissions, --model) so the Feishu-side session keeps
+  // the same behavior instead of falling back to the agent's config defaults.
+  | {
+      type: "transfer";
+      sessionId: string;
+      cwd: string;
+      hasWrapper: boolean;
+      permissionMode?: string;
+      model?: string;
+    }
   // wrapper acknowledges it has relaunched claude after a resume push
   | { type: "resumed"; sessionId: string };
 

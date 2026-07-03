@@ -8,6 +8,10 @@ export interface TransferRequest {
   sessionId: string;
   cwd: string;
   hasWrapper: boolean;
+  /** Terminal's launch-time permission mode (e.g. from --dangerously-skip-permissions). */
+  permissionMode?: string;
+  /** Terminal's launch-time model (from --model), if set. */
+  model?: string;
 }
 
 export interface IpcHandlers {
@@ -101,6 +105,8 @@ export class IpcServer {
           sessionId: msg.sessionId,
           cwd: msg.cwd,
           hasWrapper: msg.hasWrapper,
+          permissionMode: msg.permissionMode,
+          model: msg.model,
         });
         this.send(socket, { type: "ok", message: result.message, chatId: result.chatId, groupName: result.groupName });
         return;
