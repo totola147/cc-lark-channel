@@ -107,6 +107,24 @@ describe("IpcServer", () => {
     c.close();
   });
 
+  it("forwards effort from the terminal's launch flags", async () => {
+    const c = client(sockPath);
+    c.send({
+      type: "transfer",
+      sessionId: "s6",
+      cwd: "/proj",
+      hasWrapper: true,
+      effort: "xhigh",
+    });
+    const resp = await c.next();
+    expect(resp.type).toBe("ok");
+    expect(transfers[0]).toMatchObject({
+      sessionId: "s6",
+      effort: "xhigh",
+    });
+    c.close();
+  });
+
   it("returns error when handler throws", async () => {
     const c = client(sockPath);
     c.send({ type: "transfer", sessionId: "boom", cwd: "/x", hasWrapper: true });

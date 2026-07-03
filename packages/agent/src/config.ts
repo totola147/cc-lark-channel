@@ -24,6 +24,7 @@ const ClaudeSchema = z.object({
   permission_mode: z.enum(["default", "acceptEdits", "bypassPermissions"]).optional().default("acceptEdits"),
   permission_timeout_seconds: z.number().int().positive().optional().default(120),
   max_queue_size: z.number().int().positive().optional().default(5),
+  effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
 }).optional().default({
   cli_path: "claude",
   default_model: "",
@@ -78,6 +79,7 @@ export type AppConfig = z.infer<typeof ConfigSchema>;
  * CLC_CLAUDE_DEFAULT_MODEL  → claude.default_model
  * CLC_CLAUDE_DEFAULT_CWD    → claude.default_cwd
  * CLC_CLAUDE_PERMISSION_MODE → claude.permission_mode
+ * CLC_CLAUDE_EFFORT        → claude.effort
  * CLC_LOG_LEVEL             → logging.level
  * CLC_STATE_DIR             → persistence.state_dir
  */
@@ -94,6 +96,7 @@ function applyRawEnvOverrides(parsed: Record<string, unknown>): void {
   if (env["CLC_CLAUDE_DEFAULT_MODEL"]) claude["default_model"] = env["CLC_CLAUDE_DEFAULT_MODEL"];
   if (env["CLC_CLAUDE_DEFAULT_CWD"]) claude["default_cwd"] = env["CLC_CLAUDE_DEFAULT_CWD"];
   if (env["CLC_CLAUDE_PERMISSION_MODE"]) claude["permission_mode"] = env["CLC_CLAUDE_PERMISSION_MODE"];
+  if (env["CLC_CLAUDE_EFFORT"]) claude["effort"] = env["CLC_CLAUDE_EFFORT"];
 
   if (!parsed["logging"] || typeof parsed["logging"] !== "object") parsed["logging"] = {};
   const logging = parsed["logging"] as Record<string, unknown>;

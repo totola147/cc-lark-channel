@@ -12,6 +12,8 @@ export interface TransferRequest {
   permissionMode?: string;
   /** Terminal's launch-time model (from --model), if set. */
   model?: string;
+  /** Terminal's launch-time reasoning effort (from --effort), if set. */
+  effort?: string;
 }
 
 export interface IpcHandlers {
@@ -107,6 +109,7 @@ export class IpcServer {
           hasWrapper: msg.hasWrapper,
           permissionMode: msg.permissionMode,
           model: msg.model,
+          effort: msg.effort,
         });
         this.send(socket, { type: "ok", message: result.message, chatId: result.chatId, groupName: result.groupName });
         return;

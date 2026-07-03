@@ -14,9 +14,10 @@ import { WorkspaceManager } from "./workspace/manager.js";
 import { IpcServer } from "./ipc/server.js";
 import { getLiveSessionOwner } from "./claude/session-registry.js";
 import { buildRecap } from "./claude/session-recap.js";
-import type { PermissionMode } from "./types.js";
+import type { PermissionMode, EffortLevel } from "./types.js";
 
 const VALID_PERMISSION_MODES: PermissionMode[] = ["default", "acceptEdits", "bypassPermissions"];
+const VALID_EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high", "xhigh", "max"];
 
 const TOKEN_PATH = resolve(homedir(), ".cc-lark-channel/relay.json");
 
@@ -273,7 +274,7 @@ async function main() {
   // Local IPC: terminal tools (cc-transfer / cc-session) talk to the agent.
   const ipcServer = new IpcServer(
     {
-      onTransfer: async ({ sessionId, cwd, hasWrapper, permissionMode, model }) => {
+      onTransfer: async ({ sessionId, cwd, hasWrapper, permissionMode, model, effort }) => {
         // Safety gate: do not take over a session still held by a live terminal.
         // The wrapper kills claude before transferring, so by now it should be dead.
         const owner = getLiveSessionOwner(sessionId);
@@ -305,6 +306,13 @@ async function main() {
         }
         if (model) {
           session.model = model;
+        }
+        if (effort) {
+          if (VALID_EFFORT_LEVELS.includes(effort as EffortLevel)) {
+            session.effort = effort as EffortLevel;
+          } else {
+            logger.warn({ sessionId, effort }, "Unsupported effort level from terminal, ignoring");
+          }
         }
 
         const note = hasWrapper ? "" : "\n（终端未使用 cc-session 包装器，交还时需手动 claude --resume）";

@@ -35,6 +35,7 @@ let initialResumeId;
 let extraArgs = [];
 let transferPermissionMode; // "bypassPermissions" | "acceptEdits" | "default" | undefined
 let transferModel;
+let transferEffort; // "low" | "medium" | "high" | "xhigh" | "max" | undefined
 {
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
@@ -58,6 +59,12 @@ let transferModel;
       extraArgs.push(a);
     } else if (a.startsWith("--model=")) {
       transferModel = a.slice("--model=".length);
+      extraArgs.push(a);
+    } else if (a === "--effort") {
+      if (argv[i + 1]) transferEffort = argv[i + 1];
+      extraArgs.push(a);
+    } else if (a.startsWith("--effort=")) {
+      transferEffort = a.slice("--effort=".length);
       extraArgs.push(a);
     } else {
       extraArgs.push(a);
@@ -232,6 +239,7 @@ function doTransferAndWait(sessionId, cwd) {
       hasWrapper: true,
       permissionMode: transferPermissionMode,
       model: transferModel,
+      effort: transferEffort,
     }) + "\n");
     log(`正在请求转移会话 ${sessionId} 至飞书...`);
   };

@@ -2,7 +2,7 @@ import type { Transport } from "../transport/interface.js";
 import type { SessionManager } from "../claude/session-manager.js";
 import type { WorkspaceManager } from "../workspace/manager.js";
 import type { AppConfig } from "../config.js";
-import type { IncomingMessage, PermissionMode } from "../types.js";
+import type { IncomingMessage, PermissionMode, EffortLevel } from "../types.js";
 import type { Logger } from "../util/logger.js";
 import { getLiveSessionOwner } from "../claude/session-registry.js";
 
@@ -36,7 +36,7 @@ export class CommandRouter {
     const command = spaceIdx === -1 ? text : text.slice(0, spaceIdx);
     const args = spaceIdx === -1 ? "" : text.slice(spaceIdx + 1).trim();
 
-    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/cd", "/bg", "/fg", "/kill", "/attach", "/update", "/workspace", "/workspaces", "/close", "/handback", "/help"];
+    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/effort", "/cd", "/bg", "/fg", "/kill", "/attach", "/update", "/workspace", "/workspaces", "/close", "/handback", "/help"];
     if (!known.includes(command)) return null;
 
     return { command, args };
@@ -91,6 +91,7 @@ export class CommandRouter {
           `CWD: ${session.cwd}`,
           `Model: ${session.model || "(default)"}`,
           `Permission: ${session.permissionMode}`,
+          `Effort: ${session.effort || "(default)"}`,
           `Turns: ${stats.turnCount}`,
           `Tokens: ${stats.totalInputTokens} in / ${stats.totalOutputTokens} out`,
           `Queue: ${session.getQueueLength()}`,
@@ -180,6 +181,18 @@ export class CommandRouter {
         const session = this.sessionManager.getOrCreateSession(chatId);
         session.model = cmd.args;
         await this.transport.sendText(chatId, `Model: ${cmd.args}`);
+        break;
+      }
+
+      case "/effort": {
+        const validEfforts: EffortLevel[] = ["low", "medium", "high", "xhigh", "max"];
+        if (!cmd.args || !validEfforts.includes(cmd.args as EffortLevel)) {
+          await this.transport.sendText(chatId, `Usage: /effort <${validEfforts.join("|")}>`);
+          break;
+        }
+        const session = this.sessionManager.getOrCreateSession(chatId);
+        session.effort = cmd.args as EffortLevel;
+        await this.transport.sendText(chatId, `Effort: ${cmd.args}`);
         break;
       }
 
@@ -396,6 +409,7 @@ const HELP_TEXT = `cc-lark-channel commands:
 /update — Pull latest code and restart
 /mode <mode> — Set permission mode
 /model <name> — Switch model
+/effort <level> — Set reasoning effort (low|medium|high|xhigh|max)
 /cd <path> — Change working directory (starts new session)
 /help — Show this help
 

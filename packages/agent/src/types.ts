@@ -9,12 +9,16 @@ export interface IncomingMessage {
 
 export type PermissionMode = "default" | "acceptEdits" | "bypassPermissions";
 
+/** Reasoning effort level, mirrored from the Claude Agent SDK's EffortLevel. */
+export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
+
 export type SessionState = "idle" | "generating" | "awaiting_permission";
 
 export interface SessionStatus {
   state: SessionState;
   permissionMode: PermissionMode;
   model: string;
+  effort?: EffortLevel;
   cwd: string;
   turnCount: number;
   totalInputTokens: number;
@@ -30,7 +34,7 @@ export type RenderEvent =
   | { type: "thinking"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "tool_result"; toolUseId: string; isError: boolean; text: string }
-  | { type: "turn_end"; durationMs: number; inputTokens: number; outputTokens: number }
+  | { type: "turn_end"; durationMs: number; inputTokens: number; outputTokens: number; model?: string; contextWindow?: number }
   | { type: "queued"; position: number }
   | { type: "interrupted"; reason: "stop" | "bang_prefix" }
   | { type: "stop_ack" }

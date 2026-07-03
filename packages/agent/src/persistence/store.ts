@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Logger } from "../util/logger.js";
-import type { PermissionMode } from "../types.js";
+import type { PermissionMode, EffortLevel } from "../types.js";
 
 export interface SessionRecord {
   id: string;
@@ -12,6 +12,7 @@ export interface SessionRecord {
   lastActiveAt: string;
   permissionMode: PermissionMode;
   model: string;
+  effort?: EffortLevel;
 }
 
 export interface ChatRecord {

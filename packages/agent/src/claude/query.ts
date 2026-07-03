@@ -1,6 +1,6 @@
 import { query, type PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import type { Logger } from "../util/logger.js";
-import type { RenderEvent, PermissionMode } from "../types.js";
+import type { RenderEvent, PermissionMode, EffortLevel } from "../types.js";
 import type { PermissionBroker } from "./permission-broker.js";
 
 export interface QueryOptions {
@@ -11,6 +11,7 @@ export interface QueryOptions {
   permissionMode: PermissionMode;
   cliPath: string;
   resumeId?: string;
+  effort?: EffortLevel;
 }
 
 export interface QueryHandle {
@@ -52,6 +53,7 @@ export function createQuery(
       abortController: abort,
       env: { ...process.env },
       ...(opts.resumeId ? { resume: opts.resumeId } : {}),
+      ...(opts.effort ? { effort: opts.effort } : {}),
       canUseTool: async (toolName: string, input: Record<string, unknown>): Promise<PermissionResult> => {
         const allowed = await broker.requestPermission(chatId, toolName, input);
         if (allowed) {
@@ -68,6 +70,8 @@ export function createQuery(
       const startTime = Date.now();
       let inputTokens = 0;
       let outputTokens = 0;
+      let resolvedModel: string | undefined;
+      let contextWindow: number | undefined;
 
       try {
         for await (const msg of q as AsyncIterable<SDKMessage>) {
@@ -88,11 +92,23 @@ export function createQuery(
               }
             }
           }
+          if (msg.type === "system" && msg.subtype === "init" && msg.model) {
+            resolvedModel = msg.model;
+          }
           if (msg.type === "result") {
             inputTokens = msg.usage?.input_tokens ?? 0;
             outputTokens = msg.usage?.output_tokens ?? 0;
             if (msg.session_id) {
               events.sessionId = msg.session_id;
+            }
+            if (msg.modelUsage) {
+              const usageModel = resolvedModel && msg.modelUsage[resolvedModel]
+                ? resolvedModel
+                : Object.keys(msg.modelUsage)[0];
+              if (usageModel) {
+                contextWindow = msg.modelUsage[usageModel]?.contextWindow;
+                resolvedModel = resolvedModel ?? usageModel;
+              }
             }
           }
         }
@@ -109,6 +125,8 @@ export function createQuery(
         durationMs: Date.now() - startTime,
         inputTokens,
         outputTokens,
+        model: resolvedModel,
+        contextWindow,
       };
     },
   };
@@ -124,9 +142,14 @@ export function createQuery(
 
 interface SDKMessage {
   type: string;
+  subtype?: string;
   message?: { content?: readonly SDKContentBlock[] };
   usage?: { input_tokens?: number; output_tokens?: number };
   session_id?: string;
+  /** Present on 'system'/'init' messages: the resolved model name. */
+  model?: string;
+  /** Present on 'result' messages: per-model usage, including contextWindow. */
+  modelUsage?: Record<string, { contextWindow?: number }>;
 }
 
 interface SDKContentBlock {

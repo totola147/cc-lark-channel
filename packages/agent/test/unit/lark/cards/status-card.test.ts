@@ -81,9 +81,43 @@ describe("buildStatusCard", () => {
       done: true,
     };
     const card = buildStatusCard(state);
-    const footer = card.body.elements.find((e) => e.tag === "markdown" && (e as { content: string }).content.includes("Tokens"));
-    expect((footer as { content: string }).content).toContain("500 in");
-    expect((footer as { content: string }).content).toContain("200 out");
+    const footer = card.body.elements.find((e) => e.tag === "markdown" && (e as { content: string }).content.includes("tok"));
+    expect((footer as { content: string }).content).toContain("in: 500");
+    expect((footer as { content: string }).content).toContain("out: 200");
     expect((footer as { content: string }).content).toContain("5.0s");
+  });
+
+  it("shows model, context percentage and effort in footer", () => {
+    const state: StatusCardState = {
+      outputText: "done",
+      inputTokens: 5000,
+      outputTokens: 200,
+      elapsedMs: 5000,
+      done: true,
+      model: "claude-sonnet-4-5",
+      contextWindow: 10000,
+      effort: "xhigh",
+    };
+    const card = buildStatusCard(state);
+    const footer = card.body.elements.find((e) => e.tag === "markdown" && (e as { content: string }).content.includes("tok"));
+    const content = (footer as { content: string }).content;
+    expect(content).toContain("claude-sonnet-4-5");
+    expect(content).toContain("ctx: 50%");
+    expect(content).toContain("effort: xhigh");
+  });
+
+  it("omits ctx% and effort when not known", () => {
+    const state: StatusCardState = {
+      outputText: "done",
+      inputTokens: 500,
+      outputTokens: 200,
+      elapsedMs: 5000,
+      done: true,
+    };
+    const card = buildStatusCard(state);
+    const footer = card.body.elements.find((e) => e.tag === "markdown" && (e as { content: string }).content.includes("tok"));
+    const content = (footer as { content: string }).content;
+    expect(content).not.toContain("ctx:");
+    expect(content).not.toContain("effort:");
   });
 });

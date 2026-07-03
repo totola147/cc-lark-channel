@@ -2,7 +2,7 @@ import type { Logger } from "../util/logger.js";
 import type { Transport } from "../transport/interface.js";
 import type { PermissionBroker } from "./permission-broker.js";
 import type { AppConfig } from "../config.js";
-import type { IncomingMessage, PermissionMode } from "../types.js";
+import type { IncomingMessage, PermissionMode, EffortLevel } from "../types.js";
 import type { StateStore } from "../persistence/store.js";
 import { ClaudeSession } from "./session.js";
 
@@ -39,6 +39,7 @@ export class SessionManager {
           rec.cwd ?? this.config.claude.default_cwd,
           (rec.permissionMode as PermissionMode) ?? this.config.claude.permission_mode,
           rec.model ?? this.config.claude.default_model,
+          rec.effort ?? this.config.claude.effort,
         );
         (session as unknown as { id: string }).id = rec.id;
         session.providerSessionId = rec.providerSessionId;
@@ -229,6 +230,7 @@ export class SessionManager {
       saved?.cwd ?? this.config.claude.default_cwd,
       saved?.permissionMode ?? this.config.claude.permission_mode,
       saved?.model ?? this.config.claude.default_model,
+      saved?.effort ?? this.config.claude.effort,
     );
     if (saved?.providerSessionId) {
       session.providerSessionId = saved.providerSessionId;
@@ -247,6 +249,7 @@ export class SessionManager {
       this.config.claude.default_cwd,
       this.config.claude.permission_mode,
       this.config.claude.default_model,
+      this.config.claude.effort,
     );
     this.attachTurnCallback(chatId, session);
     return session;
@@ -265,7 +268,7 @@ export class SessionManager {
   private persistChat(chatId: string): void {
     const chat = this.chats.get(chatId);
     if (!chat) return;
-    const sessions: Record<string, { id: string; providerSessionId?: string; name?: string; cwd: string; createdAt: string; lastActiveAt: string; permissionMode: PermissionMode; model: string }> = {};
+    const sessions: Record<string, { id: string; providerSessionId?: string; name?: string; cwd: string; createdAt: string; lastActiveAt: string; permissionMode: PermissionMode; model: string; effort?: EffortLevel }> = {};
     for (const [id, s] of chat.sessions) {
       sessions[id] = {
         id: s.id,
@@ -276,6 +279,7 @@ export class SessionManager {
         lastActiveAt: new Date().toISOString(),
         permissionMode: s.permissionMode,
         model: s.model,
+        effort: s.effort,
       };
     }
     this.stateStore.setChat(chatId, { foregroundId: chat.foregroundId, sessions });

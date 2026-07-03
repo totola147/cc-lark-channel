@@ -11,6 +11,10 @@ export interface StatusCardState {
   elapsedMs: number;
   done: boolean;
   cwd?: string;
+  model?: string;
+  /** Max context window size for the active model, if known (used to compute ctx%). */
+  contextWindow?: number;
+  effort?: string;
 }
 
 export function buildStatusCard(state: StatusCardState): FeishuCardV2 {
@@ -57,7 +61,16 @@ export function buildStatusCard(state: StatusCardState): FeishuCardV2 {
   const header = state.done ? "✅ Done" : "🤖 Generating...";
   const template = state.done ? "green" : "blue";
 
-  const footer = `Tokens: ${state.inputTokens} in / ${state.outputTokens} out · ${(state.elapsedMs / 1000).toFixed(1)}s`;
+  const footerParts: string[] = [];
+  if (state.model) footerParts.push(esc(state.model));
+  footerParts.push(`in: ${state.inputTokens} out: ${state.outputTokens} tok`);
+  footerParts.push(`${(state.elapsedMs / 1000).toFixed(1)}s`);
+  if (state.contextWindow && state.contextWindow > 0) {
+    const pct = Math.min(100, Math.round((state.inputTokens / state.contextWindow) * 100));
+    footerParts.push(`ctx: ${pct}%`);
+  }
+  if (state.effort) footerParts.push(`effort: ${esc(state.effort)}`);
+  const footer = footerParts.join(" · ");
   elements.push({ tag: "hr" });
   elements.push({ tag: "markdown", content: `<font color="grey">${footer}</font>` });
 

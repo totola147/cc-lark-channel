@@ -16,6 +16,7 @@ default_cwd = "/workspace"
 permission_mode = "default"      # "default" | "acceptEdits" | "bypassPermissions"
 permission_timeout_seconds = 120
 max_queue_size = 5
+# effort = "high"                 # optional: "low" | "medium" | "high" | "xhigh" | "max"
 
 [render]
 hide_thinking = false

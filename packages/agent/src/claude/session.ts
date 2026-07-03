@@ -2,7 +2,7 @@ import type { Logger } from "../util/logger.js";
 import type { Transport } from "../transport/interface.js";
 import type { PermissionBroker } from "./permission-broker.js";
 import type { AppConfig } from "../config.js";
-import type { RenderEvent, SessionState, PermissionMode } from "../types.js";
+import type { RenderEvent, SessionState, PermissionMode, EffortLevel } from "../types.js";
 import { createQuery, type QueryHandle } from "./query.js";
 import { buildStatusCard, type StatusCardState } from "../lark/cards/status-card.js";
 import { createDeferred, type Deferred } from "../util/deferred.js";
@@ -40,6 +40,7 @@ export class ClaudeSession {
     public cwd: string,
     public permissionMode: PermissionMode,
     public model: string,
+    public effort?: EffortLevel,
   ) {
     this.id = crypto.randomUUID().slice(0, 8);
   }
@@ -120,6 +121,7 @@ export class ClaudeSession {
         permissionMode: this.permissionMode,
         cliPath: this.config.claude.cli_path,
         resumeId: this.providerSessionId,
+        effort: this.effort,
       },
       this.chatId,
       this.broker,
@@ -198,6 +200,8 @@ export class ClaudeSession {
         this.cardState.outputTokens = event.outputTokens;
         this.cardState.elapsedMs = event.durationMs;
         this.cardState.done = true;
+        if (event.model) this.cardState.model = event.model;
+        if (event.contextWindow) this.cardState.contextWindow = event.contextWindow;
         this.totalInputTokens += event.inputTokens;
         this.totalOutputTokens += event.outputTokens;
         break;
@@ -275,6 +279,8 @@ export class ClaudeSession {
       elapsedMs: 0,
       done: false,
       cwd: this.cwd,
+      model: this.model || undefined,
+      effort: this.effort,
     };
   }
 }
