@@ -75,6 +75,10 @@ export class StateStore {
 
   async save(): Promise<void> {
     const tmp = this.filePath + ".tmp";
+    // Ensure the state directory still exists (it may have been removed
+    // concurrently, e.g. during shutdown races) so writeFile/rename don't
+    // throw an uncaught ENOENT and crash the process.
+    await mkdir(this.stateDir, { recursive: true });
     await writeFile(tmp, JSON.stringify(this.state, null, 2));
     await rename(tmp, this.filePath);
   }

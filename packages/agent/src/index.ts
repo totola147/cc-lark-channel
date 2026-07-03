@@ -352,7 +352,9 @@ async function main() {
     logger.info({ signal }, "Shutting down");
     await ipcServer.stop().catch(() => {});
     await sessionManager.shutdown();
-    await stateStore.save();
+    await stateStore.save().catch((err) => {
+      logger.warn({ err }, "Failed to persist state during shutdown");
+    });
     process.exit(0);
   }
 
