@@ -4,6 +4,11 @@ import type { FeishuCardV2 } from "../lark/cards/types.js";
 import type { CardActionPayload, PermissionChoice } from "../types.js";
 import { createDeferred, type Deferred } from "../util/deferred.js";
 import { buildPermissionCard, buildPermissionCardResolved, buildPermissionCardTimedOut } from "../lark/cards/permission-card.js";
+import {
+  buildQuestionCard,
+  buildQuestionResolvedCard,
+  type QuestionSpec,
+} from "../lark/cards/question-card.js";
 
 interface PendingRequest {
   toolName: string;
@@ -14,8 +19,22 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>;
 }
 
+interface PendingQuestion {
+  requestId: string;
+  chatId: string;
+  messageId: string;
+  qIndex: number;
+  total: number;
+  question: QuestionSpec;
+  /** Selected option indexes (multi-select accumulates here). */
+  selected: number[];
+  deferred: Deferred<string | null>;
+}
+
 export class PermissionBroker {
   private readonly pending = new Map<string, PendingRequest>();
+  /** Active AskUserQuestion cards, keyed by requestId. */
+  private readonly pendingQuestions = new Map<string, PendingQuestion>();
   private turnApproved = false;
   private sessionApproved = false;
   private readonly timeoutMs: number;
@@ -66,10 +85,59 @@ export class PermissionBroker {
     return choice !== "deny";
   }
 
+  /**
+   * Handle an AskUserQuestion tool call: present each question as its own
+   * Feishu card in sequence and collect the answers. Returns a map of
+   * question text -> answer (multi-select answers are comma-joined), matching
+   * the shape the Claude CLI expects in `updatedInput.answers`. Returns null
+   * if the flow is cancelled (e.g. session interrupted) before completion.
+   */
+  async askQuestions(
+    chatId: string,
+    questions: QuestionSpec[],
+  ): Promise<Record<string, string> | null> {
+    const requestId = crypto.randomUUID();
+    const answers: Record<string, string> = {};
+
+    for (let qIndex = 0; qIndex < questions.length; qIndex++) {
+      const question = questions[qIndex]!;
+      const card = buildQuestionCard({
+        requestId,
+        qIndex,
+        total: questions.length,
+        question,
+        selected: [],
+      });
+      const messageId = await this.larkClient.sendCard(chatId, card);
+
+      const deferred = createDeferred<string | null>();
+      this.pendingQuestions.set(requestId, {
+        requestId,
+        chatId,
+        messageId,
+        qIndex,
+        total: questions.length,
+        question,
+        selected: [],
+        deferred,
+      });
+
+      const answer = await deferred.promise;
+      this.pendingQuestions.delete(requestId);
+      if (answer === null) return null; // cancelled
+      answers[question.question] = answer;
+    }
+
+    return answers;
+  }
+
   async handleCardAction(action: {
     senderOpenId: string;
     value: CardActionPayload;
   }): Promise<{ card?: FeishuCardV2 } | void> {
+    if (action.value.kind !== "permission") {
+      return this.handleQuestionAction(action.value);
+    }
     const { request_id, choice } = action.value;
     const req = this.pending.get(request_id);
     if (!req) return;
@@ -84,6 +152,66 @@ export class PermissionBroker {
 
     const resolvedCard = buildPermissionCardResolved({ toolName: req.toolName, choice });
     return { card: resolvedCard };
+  }
+
+  private handleQuestionAction(
+    value: Exclude<CardActionPayload, { kind: "permission" }>,
+  ): { card?: FeishuCardV2 } | void {
+    const pending = this.pendingQuestions.get(value.request_id);
+    // Ignore stale actions (e.g. taps on an earlier question's card).
+    if (!pending || value.q !== pending.qIndex) return;
+
+    const { question } = pending;
+
+    if (value.kind === "question_option") {
+      const opt = question.options[value.opt];
+      if (!opt) return;
+
+      if (!question.multiSelect) {
+        // Single-select: resolve immediately with this option's label.
+        pending.deferred.resolve(opt.label);
+        return {
+          card: buildQuestionResolvedCard({
+            header: question.header,
+            question: question.question,
+            answer: opt.label,
+          }),
+        };
+      }
+
+      // Multi-select: toggle and redraw the card in place.
+      const idx = pending.selected.indexOf(value.opt);
+      if (idx >= 0) pending.selected.splice(idx, 1);
+      else pending.selected.push(value.opt);
+
+      return {
+        card: buildQuestionCard({
+          requestId: pending.requestId,
+          qIndex: pending.qIndex,
+          total: pending.total,
+          question,
+          selected: [...pending.selected].sort((a, b) => a - b),
+        }),
+      };
+    }
+
+    // question_submit (multi-select only)
+    const labels = [...pending.selected]
+      .sort((a, b) => a - b)
+      .map((i) => question.options[i]?.label)
+      .filter((l): l is string => !!l);
+    // Ignore empty submit — keep the card interactive.
+    if (labels.length === 0) return;
+
+    const answer = labels.join(", ");
+    pending.deferred.resolve(answer);
+    return {
+      card: buildQuestionResolvedCard({
+        header: question.header,
+        question: question.question,
+        answer,
+      }),
+    };
   }
 
   private handleTimeout(requestId: string): void {
@@ -104,6 +232,10 @@ export class PermissionBroker {
       clearTimeout(req.timer);
       req.deferred.resolve("deny");
       this.pending.delete(id);
+    }
+    for (const [id, q] of this.pendingQuestions) {
+      q.deferred.resolve(null);
+      this.pendingQuestions.delete(id);
     }
   }
 }
