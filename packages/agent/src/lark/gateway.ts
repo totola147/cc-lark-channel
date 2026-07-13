@@ -110,7 +110,11 @@ export class LarkGateway {
     const senderOpenId = event.operator.open_id;
     const value = event.action.value as unknown as CardActionPayload;
 
-    if (value.kind !== "permission") {
+    if (
+      value.kind !== "permission" &&
+      value.kind !== "question_option" &&
+      value.kind !== "question_submit"
+    ) {
       this.logger.debug({ value }, "Unknown card action kind");
       return;
     }

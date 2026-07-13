@@ -152,7 +152,13 @@ export class DirectTransport implements Transport {
   private async handleCardAction(event: CardActionEvent): Promise<CardActionResult> {
     const senderOpenId = event.operator.open_id;
     const value = event.action.value as unknown as CardActionPayload;
-    if (value.kind !== "permission") return;
+    if (
+      value.kind !== "permission" &&
+      value.kind !== "question_option" &&
+      value.kind !== "question_submit"
+    ) {
+      return;
+    }
     return this.events.onCardAction({ senderOpenId, value });
   }
 

@@ -2,6 +2,7 @@ import { query, type PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import type { Logger } from "../util/logger.js";
 import type { RenderEvent, PermissionMode, EffortLevel } from "../types.js";
 import type { PermissionBroker } from "./permission-broker.js";
+import type { QuestionSpec } from "../lark/cards/question-card.js";
 
 export interface QueryOptions {
   prompt: string;
@@ -55,6 +56,21 @@ export function createQuery(
       ...(opts.resumeId ? { resume: opts.resumeId } : {}),
       ...(opts.effort ? { effort: opts.effort } : {}),
       canUseTool: async (toolName: string, input: Record<string, unknown>): Promise<PermissionResult> => {
+        if (toolName === "AskUserQuestion") {
+          const questions = normalizeQuestions(input);
+          if (!questions.length) {
+            // Malformed input — fall back to allowing the tool untouched.
+            return { behavior: "allow" };
+          }
+          const answers = await broker.askQuestions(chatId, questions);
+          if (answers === null) {
+            return { behavior: "deny", message: "User did not answer (interrupted)" };
+          }
+          // The CLI reads `answers` (question text -> answer string) from the
+          // updated input and synthesizes the tool result from it.
+          return { behavior: "allow", updatedInput: { ...input, answers } };
+        }
+
         const allowed = await broker.requestPermission(chatId, toolName, input);
         if (allowed) {
           return { behavior: "allow" };
@@ -138,6 +154,35 @@ export function createQuery(
   };
 
   return { events, interrupt };
+}
+
+/** Coerce raw AskUserQuestion tool input into validated QuestionSpec[]. */
+function normalizeQuestions(input: Record<string, unknown>): QuestionSpec[] {
+  const raw = input["questions"];
+  if (!Array.isArray(raw)) return [];
+  const out: QuestionSpec[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const q = item as Record<string, unknown>;
+    const question = typeof q["question"] === "string" ? q["question"] : "";
+    const rawOptions = Array.isArray(q["options"]) ? q["options"] : [];
+    const options = rawOptions
+      .filter((o): o is Record<string, unknown> => !!o && typeof o === "object")
+      .map((o) => ({
+        label: typeof o["label"] === "string" ? o["label"] : String(o["label"] ?? ""),
+        description: typeof o["description"] === "string" ? o["description"] : undefined,
+        preview: typeof o["preview"] === "string" ? o["preview"] : undefined,
+      }))
+      .filter((o) => o.label.length > 0);
+    if (!question || options.length === 0) continue;
+    out.push({
+      question,
+      header: typeof q["header"] === "string" ? q["header"] : undefined,
+      options,
+      multiSelect: q["multiSelect"] === true,
+    });
+  }
+  return out;
 }
 
 interface SDKMessage {

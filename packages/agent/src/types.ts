@@ -44,8 +44,35 @@ export type RenderEvent =
 
 export type PermissionChoice = "allow" | "deny" | "allow_turn" | "allow_session";
 
-export interface CardActionPayload {
+/** Permission approval card action. */
+export interface PermissionActionPayload {
   kind: "permission";
   request_id: string;
   choice: PermissionChoice;
 }
+
+/**
+ * AskUserQuestion — user tapped an option.
+ * For single-select this resolves the question immediately.
+ * For multi-select this toggles the option's selected state.
+ */
+export interface QuestionOptionActionPayload {
+  kind: "question_option";
+  request_id: string;
+  /** Question index within the AskUserQuestion input. */
+  q: number;
+  /** Option index within the question. */
+  opt: number;
+}
+
+/** AskUserQuestion — user tapped submit on a multi-select question. */
+export interface QuestionSubmitActionPayload {
+  kind: "question_submit";
+  request_id: string;
+  q: number;
+}
+
+export type CardActionPayload =
+  | PermissionActionPayload
+  | QuestionOptionActionPayload
+  | QuestionSubmitActionPayload;
