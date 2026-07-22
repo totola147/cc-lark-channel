@@ -65,3 +65,52 @@ jobs:
             pm2 logs cc-lark-relay --lines 10 --nostream || true
             exit 1
           fi
+
+  deploy-agent:
+    needs: ci
+    runs-on: self-hosted
+    steps:
+      - name: Record previous commit for rollback
+        id: prev
+        run: |
+          echo "commit=$(git -C /opt/cc-lark-channel rev-parse HEAD 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
+
+      - name: Update, build and restart agent
+        run: |
+          set -euo pipefail
+          cd /opt/cc-lark-channel
+          git fetch origin v2
+          git checkout v2
+          git reset --hard origin/v2
+          pnpm install --frozen-lockfile
+          pnpm --filter @cc-lark/protocol build
+          pnpm --filter @cc-lark/agent build
+          sudo systemctl restart cc-lark-channel.service
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 10); do
+            sleep 2
+            if systemctl is-active --quiet cc-lark-channel.service \
+               && journalctl -u cc-lark-channel.service --since "-30s" --no-pager 2>/dev/null \
+                  | grep -q "listening for messages"; then
+              echo "✅ Agent deployed and ready"
+              exit 0
+            fi
+          done
+          echo "❌ Agent health check failed"
+          sudo systemctl status cc-lark-channel.service --no-pager || true
+          journalctl -u cc-lark-channel.service --since "-60s" --no-pager | tail -20 || true
+          exit 1
+
+      - name: Rollback on failure
+        if: failure() && steps.prev.outputs.commit != ''
+        run: |
+          echo "Rolling back agent to ${{ steps.prev.outputs.commit }}"
+          cd /opt/cc-lark-channel
+          git reset --hard ${{ steps.prev.outputs.commit }}
+          pnpm install --frozen-lockfile
+          pnpm --filter @cc-lark/protocol build
+          pnpm --filter @cc-lark/agent build
+          sudo systemctl restart cc-lark-channel.service
+          echo "Rollback complete"
