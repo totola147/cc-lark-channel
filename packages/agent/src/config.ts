@@ -39,11 +39,22 @@ const RenderSchema = z.object({
   show_turn_stats: z.boolean().optional().default(true),
   inline_max_bytes: z.number().int().positive().optional().default(1500),
   card_update_interval_ms: z.number().int().positive().optional().default(500),
+  // Refresh the status card at least this often while generating, even when no
+  // new SDK events arrive (e.g. a long WebFetch/Write/Edit sequence), so the
+  // user sees live elapsed time / current tool and can tell "working" from
+  // "dead". Set to 0 to disable the heartbeat.
+  heartbeat_interval_ms: z.number().int().nonnegative().optional().default(4000),
+  // Post the final assistant reply as a NEW message at the bottom of the chat
+  // (in addition to the in-place status card) so it notifies and isn't buried
+  // above mid-turn question cards. Set false to keep only the status card.
+  final_reply_as_message: z.boolean().optional().default(true),
 }).optional().default({
   hide_thinking: false,
   show_turn_stats: true,
   inline_max_bytes: 1500,
   card_update_interval_ms: 500,
+  heartbeat_interval_ms: 4000,
+  final_reply_as_message: true,
 });
 
 const PersistenceSchema = z.object({

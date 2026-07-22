@@ -29,6 +29,8 @@ const mockConfig: AppConfig = {
     show_turn_stats: true,
     inline_max_bytes: 1500,
     card_update_interval_ms: 50,
+    heartbeat_interval_ms: 0,
+    final_reply_as_message: true,
   },
   persistence: { state_dir: "/tmp" },
   logging: { level: "info" },
@@ -176,5 +178,78 @@ describe("ClaudeSession", () => {
     await session.submit("first");
     await session.stop();
     expect(lark.sendText).toHaveBeenCalledWith("chat-1", "⏹ Stopped");
+  });
+
+  it("posts the final reply as a new message on natural completion", async () => {
+    const events = async function* () {
+      yield { type: "text" as const, text: "The answer is " };
+      yield { type: "text" as const, text: "42." };
+      yield { type: "turn_end" as const, durationMs: 100, inputTokens: 10, outputTokens: 5 };
+    };
+    vi.mocked(createQuery).mockReturnValue({
+      events: Object.assign(events(), { sessionId: "s1" }),
+      interrupt: vi.fn(),
+    });
+
+    await session.submit("q");
+    await new Promise((r) => setTimeout(r, 200));
+    expect(lark.sendText).toHaveBeenCalledWith("chat-1", "The answer is 42.");
+  });
+
+  it("final reply is only the text after the last tool call", async () => {
+    const events = async function* () {
+      yield { type: "text" as const, text: "Let me check." };
+      yield { type: "tool_use" as const, id: "t1", name: "Read", input: {} };
+      yield { type: "tool_result" as const, toolUseId: "t1", isError: false, text: "ok" };
+      yield { type: "text" as const, text: "Done: found it." };
+      yield { type: "turn_end" as const, durationMs: 100, inputTokens: 10, outputTokens: 5 };
+    };
+    vi.mocked(createQuery).mockReturnValue({
+      events: Object.assign(events(), { sessionId: "s1" }),
+      interrupt: vi.fn(),
+    });
+
+    await session.submit("q");
+    await new Promise((r) => setTimeout(r, 200));
+    const textCalls = vi.mocked(lark.sendText).mock.calls.map((c) => c[1]);
+    expect(textCalls).toContain("Done: found it.");
+    expect(textCalls).not.toContain("Let me check.");
+  });
+
+  it("does not post a final reply when interrupted", async () => {
+    const events = async function* () {
+      yield { type: "text" as const, text: "partial answer" };
+      await new Promise((r) => setTimeout(r, 5000));
+      yield { type: "turn_end" as const, durationMs: 100, inputTokens: 0, outputTokens: 0 };
+    };
+    vi.mocked(createQuery).mockReturnValue({
+      events: Object.assign(events(), { sessionId: undefined }),
+      interrupt: vi.fn(),
+    });
+
+    await session.submit("q");
+    await new Promise((r) => setTimeout(r, 50));
+    await session.interrupt();
+    await new Promise((r) => setTimeout(r, 50));
+    const textCalls = vi.mocked(lark.sendText).mock.calls.map((c) => c[1]);
+    expect(textCalls).not.toContain("partial answer");
+  });
+});
+
+describe("chunkText", () => {
+  it("returns a single chunk when under the limit", async () => {
+    const { chunkText } = await import("../../../src/claude/session.ts");
+    expect(chunkText("hello", 100)).toEqual(["hello"]);
+  });
+
+  it("splits long text on paragraph boundaries and preserves content", async () => {
+    const { chunkText } = await import("../../../src/claude/session.ts");
+    const para = "x".repeat(60);
+    const text = [para, para, para].join("\n\n");
+    const chunks = chunkText(text, 80);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(80);
+    // No content lost (ignoring whitespace trimmed at boundaries).
+    expect(chunks.join("").replace(/\s/g, "")).toBe(text.replace(/\s/g, ""));
   });
 });

@@ -15,6 +15,8 @@ export interface StatusCardState {
   /** Max context window size for the active model, if known (used to compute ctx%). */
   contextWindow?: number;
   effort?: string;
+  /** Number of tools invoked so far this turn (shown as a liveness signal). */
+  toolCount?: number;
 }
 
 export function buildStatusCard(state: StatusCardState): FeishuCardV2 {
@@ -38,9 +40,10 @@ export function buildStatusCard(state: StatusCardState): FeishuCardV2 {
       inputPreview = String(state.currentTool.input);
     }
     if (inputPreview.length > 500) inputPreview = inputPreview.slice(0, 500) + "...";
+    const counter = state.toolCount ? ` (#${state.toolCount})` : "";
     elements.push({
       tag: "markdown",
-      content: `🔧 **${esc(state.currentTool.name)}**\n\`\`\`json\n${inputPreview}\n\`\`\``,
+      content: `🔧 **${esc(state.currentTool.name)}**${counter}\n\`\`\`json\n${inputPreview}\n\`\`\``,
     });
   }
 
@@ -65,6 +68,7 @@ export function buildStatusCard(state: StatusCardState): FeishuCardV2 {
   if (state.model) footerParts.push(esc(state.model));
   footerParts.push(`in: ${state.inputTokens} out: ${state.outputTokens} tok`);
   footerParts.push(`${(state.elapsedMs / 1000).toFixed(1)}s`);
+  if (state.toolCount) footerParts.push(`tools: ${state.toolCount}`);
   if (state.contextWindow && state.contextWindow > 0) {
     const pct = Math.min(100, Math.round((state.inputTokens / state.contextWindow) * 100));
     footerParts.push(`ctx: ${pct}%`);

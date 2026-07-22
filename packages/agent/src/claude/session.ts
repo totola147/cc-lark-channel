@@ -21,6 +21,15 @@ export class ClaudeSession {
   private cardState: StatusCardState = this.freshCardState();
   private lastCardUpdate = 0;
   private cardUpdateTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private turnStartMs = 0;
+  private toolCount = 0;
+  /**
+   * Assistant text emitted after the most recent tool call — i.e. the final
+   * reply once the turn ends. Reset whenever a tool runs so tool-interleaved
+   * narration doesn't accumulate into the final message.
+   */
+  private finalReplyText = "";
 
   private turnCount = 0;
   private totalInputTokens = 0;
@@ -84,6 +93,9 @@ export class ClaudeSession {
     }
     this.broker.cancelAll();
     this.state = "idle";
+    this.stopHeartbeat();
+    // Drop any buffered partial answer so it isn't posted as a final reply.
+    this.finalReplyText = "";
 
     // Flush queue — all queued inputs are dropped
     for (const q of this.queue) {
@@ -111,6 +123,10 @@ export class ClaudeSession {
     this.broker.resetTurn();
     this.cardState = this.freshCardState();
     this.statusCardId = null;
+    this.turnStartMs = Date.now();
+    this.toolCount = 0;
+    this.finalReplyText = "";
+    this.startHeartbeat();
 
     const handle = createQuery(
       {
@@ -129,6 +145,8 @@ export class ClaudeSession {
     );
     this.currentHandle = handle;
 
+    let completedNaturally = false;
+    let retrying = false;
     try {
       let receivedFirstEvent = false;
       let startupTimer: ReturnType<typeof setTimeout> | null = null;
@@ -153,11 +171,13 @@ export class ClaudeSession {
       // Capture session ID if available
       const sessionId = (handle.events as { sessionId?: string }).sessionId;
       if (sessionId) this.providerSessionId = sessionId;
+      completedNaturally = true;
     } catch (err) {
       const msg = (err as Error).message ?? "";
       // Resume failed — retry without session ID
       if ((msg.includes("No conversation found") || msg.includes("failed to launch") || msg.includes("aborted")) && this.providerSessionId) {
         this.logger.warn("Resume failed, starting fresh session");
+        retrying = true;
         this.providerSessionId = undefined;
         this.currentHandle = null;
         this.state = "idle";
@@ -168,11 +188,18 @@ export class ClaudeSession {
       this.logger.error({ err }, "Turn execution error");
       await this.transport.sendText(this.chatId, `❌ Error: ${msg}`).catch(() => {});
     } finally {
-      this.currentHandle = null;
-      this.state = "idle";
-      await this.finalizeCard();
-      this.onTurnComplete?.();
-      this.dequeueNext();
+      // The resume-retry path re-enters runTurn and owns its own lifecycle;
+      // skip finalization here so we don't double-finalize or post twice.
+      if (!retrying) {
+        this.currentHandle = null;
+        this.state = "idle";
+        await this.finalizeCard();
+        // Post the final reply only on natural completion. On error/abort the
+        // buffer is left as-is (interrupt clears it) so no partial is posted.
+        if (completedNaturally) await this.postFinalReply();
+        this.onTurnComplete?.();
+        this.dequeueNext();
+      }
     }
   }
 
@@ -184,14 +211,20 @@ export class ClaudeSession {
         }
         break;
       case "tool_use":
+        this.toolCount++;
+        this.cardState.toolCount = this.toolCount;
         this.cardState.currentTool = { name: event.name, input: event.input };
         this.cardState.thinking = undefined;
+        // A tool call means any text so far was interstitial narration, not the
+        // final answer — reset the final-reply accumulator.
+        this.finalReplyText = "";
         break;
       case "tool_result":
         this.cardState.currentTool = undefined;
         break;
       case "text":
         this.cardState.outputText += event.text;
+        this.finalReplyText += event.text;
         this.cardState.thinking = undefined;
         this.cardState.currentTool = undefined;
         break;
@@ -231,8 +264,10 @@ export class ClaudeSession {
 
   private async flushCardUpdate(): Promise<void> {
     this.lastCardUpdate = Date.now();
-    if (this.cardState.elapsedMs === 0) {
-      this.cardState.elapsedMs = Date.now() - (Date.now() - 100);
+    // While generating, show elapsed time ticking live from the turn start.
+    // After turn_end the SDK-reported duration is authoritative, so keep it.
+    if (!this.cardState.done && this.turnStartMs) {
+      this.cardState.elapsedMs = Date.now() - this.turnStartMs;
     }
 
     const card = buildStatusCard(this.cardState);
@@ -248,7 +283,33 @@ export class ClaudeSession {
     }
   }
 
+  /**
+   * Refresh the status card on a fixed interval while generating, so a long
+   * silent tool sequence (WebFetch/Write/Edit with no streamed text) still
+   * shows live elapsed time and the current tool — the user can tell it's
+   * working, not hung. No-op once the turn is done or if disabled in config.
+   */
+  private startHeartbeat(): void {
+    const interval = this.config.render.heartbeat_interval_ms;
+    if (!interval) return;
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.state !== "generating" || this.cardState.done) return;
+      this.flushCardUpdate().catch(() => {});
+    }, interval);
+    // Don't keep the process alive just for the heartbeat.
+    this.heartbeatTimer.unref?.();
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
   private async finalizeCard(): Promise<void> {
+    this.stopHeartbeat();
     if (this.cardUpdateTimer) {
       clearTimeout(this.cardUpdateTimer);
       this.cardUpdateTimer = null;
@@ -258,6 +319,20 @@ export class ClaudeSession {
       const card = buildStatusCard(this.cardState);
       await this.transport.updateCard(this.statusCardId, card).catch(() => {});
       this.statusCardId = null;
+    }
+  }
+
+  private async postFinalReply(): Promise<void> {
+    if (!this.config.render.final_reply_as_message) return;
+    const reply = this.finalReplyText.trim();
+    this.finalReplyText = "";
+    if (!reply) return;
+    // Feishu text messages cap around 30k bytes; chunk conservatively on
+    // paragraph boundaries to stay well under the limit.
+    for (const chunk of chunkText(reply, 3000)) {
+      await this.transport.sendText(this.chatId, chunk).catch((err) => {
+        this.logger.warn({ err }, "Failed to post final reply message");
+      });
     }
   }
 
@@ -281,6 +356,26 @@ export class ClaudeSession {
       cwd: this.cwd,
       model: this.model || undefined,
       effort: this.effort,
+      toolCount: 0,
     };
   }
+}
+
+/**
+ * Split text into chunks no larger than `max` characters, preferring to break
+ * on paragraph then line then hard boundaries so messages stay readable.
+ */
+export function chunkText(text: string, max: number): string[] {
+  if (text.length <= max) return [text];
+  const chunks: string[] = [];
+  let rest = text;
+  while (rest.length > max) {
+    let cut = rest.lastIndexOf("\n\n", max);
+    if (cut < max * 0.5) cut = rest.lastIndexOf("\n", max);
+    if (cut < max * 0.5) cut = max;
+    chunks.push(rest.slice(0, cut).trimEnd());
+    rest = rest.slice(cut).trimStart();
+  }
+  if (rest) chunks.push(rest);
+  return chunks;
 }
