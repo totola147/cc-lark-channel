@@ -124,6 +124,15 @@ export class LarkBot {
 
     const parsed = this.parseContent(message.message_type, message.content);
 
+    // DIAG: routing is keyed on senderOpenId, not chatId. This logs which agent
+    // a group's message is dispatched to, so cross-environment cwd drift (same
+    // group served by different agents) can be traced. Remove once confirmed.
+    const routedAgentId = this.tunnels.getByUserId(senderOpenId)?.agentId;
+    this.logger.info(
+      { chatId, senderOpenId, routedAgentId, messageId: message.message_id },
+      "ROUTE inbound message",
+    );
+
     this.tunnels.sendToUser(senderOpenId, {
       type: "message",
       chatId,
@@ -139,6 +148,11 @@ export class LarkBot {
     const value = event.action.value;
 
     if (value.kind === "permission") {
+      const routedAgentId = this.tunnels.getByUserId(senderOpenId)?.agentId;
+      this.logger.info(
+        { senderOpenId, routedAgentId, requestId: (value as { request_id?: string }).request_id },
+        "ROUTE inbound card_action",
+      );
       this.tunnels.sendToUser(senderOpenId, {
         type: "card_action",
         senderOpenId,
