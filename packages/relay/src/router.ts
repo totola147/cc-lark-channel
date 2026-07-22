@@ -25,6 +25,15 @@ export class Router {
       return;
     }
 
+    // Agent re-asserts ownership of its workspace chats (on connect/reconnect).
+    if (msg.type === "claim_chats") {
+      for (const chatId of msg.chatIds) {
+        this.tunnels.claimChat(agentId, chatId);
+      }
+      this.logger.info({ agentId, count: msg.chatIds.length }, "Claimed chats");
+      return;
+    }
+
     const requestId = "requestId" in msg ? (msg as { requestId: string }).requestId : "";
 
     try {
@@ -61,6 +70,8 @@ export class Router {
         }
         case "create_group": {
           const chatId = await this.larkBot.createGroup(msg.name, msg.description, msg.ownerOpenId);
+          // The creating agent owns this chat — route its future messages here.
+          this.tunnels.claimChat(agentId, chatId);
           this.tunnels.sendResponse(agentId, { type: "response", requestId, success: true, data: { chatId } });
           break;
         }

@@ -18,8 +18,14 @@ export type CardActionValue =
 // --- Agent → Relay (upstream) ---
 
 export type AgentToRelay =
-  | { type: "auth"; openId: string }
+  // agentId: stable per-install id so multiple agents can share one openId
+  // without evicting each other. Optional for backward compat (falls back to
+  // openId on the relay).
+  | { type: "auth"; openId: string; agentId?: string }
   | { type: "pong" }
+  // Re-assert ownership of workspace chats after (re)connect; the relay keeps
+  // chat->agent routing in memory and loses it on restart.
+  | { type: "claim_chats"; chatIds: string[] }
   | { type: "send_text"; chatId: string; text: string; requestId: string }
   | { type: "send_card"; chatId: string; card: FeishuCardV2; requestId: string }
   | { type: "update_card"; messageId: string; card: FeishuCardV2; requestId: string }

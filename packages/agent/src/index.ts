@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { loadConfig } from "./config.js";
 import { createLogger } from "./util/logger.js";
+import { randomUUID } from "node:crypto";
 import { DirectTransport } from "./transport/direct.js";
 import { RelayTransport } from "./transport/relay.js";
 import type { Transport, TransportEvents } from "./transport/interface.js";
@@ -38,7 +39,7 @@ function parseArgs() {
   return opts;
 }
 
-async function loadSavedRelay(): Promise<{ relayUrl: string; openId: string } | null> {
+async function loadSavedRelay(): Promise<{ relayUrl: string; openId: string; agentId?: string } | null> {
   try {
     const raw = await readFile(TOKEN_PATH, "utf-8");
     const data = JSON.parse(raw);
@@ -47,9 +48,9 @@ async function loadSavedRelay(): Promise<{ relayUrl: string; openId: string } | 
   return null;
 }
 
-async function saveRelay(relayUrl: string, openId: string): Promise<void> {
+async function saveRelay(relayUrl: string, openId: string, agentId: string): Promise<void> {
   await mkdir(resolve(homedir(), ".cc-lark-channel"), { recursive: true });
-  await writeFile(TOKEN_PATH, JSON.stringify({ relayUrl, openId }, null, 2));
+  await writeFile(TOKEN_PATH, JSON.stringify({ relayUrl, openId, agentId }, null, 2));
 }
 
 async function installService(): Promise<void> {
@@ -213,6 +214,7 @@ async function main() {
 
   let transport: Transport & { setEvents(e: TransportEvents): void };
   let ownerOpenId = "";
+  let agentId = "";
 
   // Determine mode: check saved relay config if no explicit args
   const savedRelay = await loadSavedRelay();
@@ -241,6 +243,9 @@ async function main() {
       relayUrl = relayUrl || savedRelay.relayUrl;
       openId = openId || savedRelay.openId;
     }
+    // Stable per-install agent id: lets multiple agents share one openId
+    // without evicting each other on the relay. Generated once, then persisted.
+    agentId = savedRelay?.agentId || randomUUID();
 
     if (!relayUrl) {
       console.error("Error: --relay <url> required, or configure in ~/.cc-lark-channel/relay.json");
@@ -252,8 +257,8 @@ async function main() {
       openId = await deviceCodeFlow(relayUrl);
     }
 
-    // Save for next time
-    await saveRelay(relayUrl, openId);
+    // Save for next time (persist the stable agentId too)
+    await saveRelay(relayUrl, openId, agentId);
 
     // Setup mode: pair + install service, then exit
     if (opts["setup"]) {
@@ -262,9 +267,19 @@ async function main() {
       process.exit(0);
     }
 
-    logger.info({ relayUrl, openId }, "cc-lark-channel starting (relay mode)");
+    logger.info({ relayUrl, openId, agentId }, "cc-lark-channel starting (relay mode)");
     ownerOpenId = openId;
-    transport = new RelayTransport({ relayUrl, openId }, logger);
+    // onConnect: re-assert ownership of our workspace chats so the relay can
+    // rebuild chat->agent routing after a reconnect or relay restart.
+    transport = new RelayTransport(
+      {
+        relayUrl,
+        openId,
+        agentId,
+        listOwnedChatIds: () => Object.keys(stateStore.getAllWorkspaces()),
+      },
+      logger,
+    );
   }
 
   const permissionBroker = new PermissionBroker(config.claude, transport, logger);

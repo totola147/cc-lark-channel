@@ -8,6 +8,10 @@ import { createDeferred, type Deferred } from "../util/deferred.js";
 export interface RelayTransportConfig {
   relayUrl: string;
   openId: string;
+  /** Stable per-install id; lets multiple agents share one openId. */
+  agentId?: string;
+  /** Returns chatIds this agent owns, re-claimed on every (re)connect. */
+  listOwnedChatIds?: () => string[];
   reconnectIntervalMs?: number;
 }
 
@@ -86,7 +90,13 @@ export class RelayTransport implements Transport {
 
       this.ws.on("open", () => {
         this.logger.info("Connected to relay");
-        this.send({ type: "auth", openId: this.config.openId });
+        this.send({ type: "auth", openId: this.config.openId, agentId: this.config.agentId });
+        // Re-assert chat ownership so the relay rebuilds chat->agent routing
+        // (its map is in-memory and lost across restarts/reconnects).
+        const chatIds = this.config.listOwnedChatIds?.() ?? [];
+        if (chatIds.length) {
+          this.send({ type: "claim_chats", chatIds });
+        }
         resolve();
       });
 

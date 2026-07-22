@@ -124,16 +124,16 @@ export class LarkBot {
 
     const parsed = this.parseContent(message.message_type, message.content);
 
-    // DIAG: routing is keyed on senderOpenId, not chatId. This logs which agent
-    // a group's message is dispatched to, so cross-environment cwd drift (same
-    // group served by different agents) can be traced. Remove once confirmed.
-    const routedAgentId = this.tunnels.getByUserId(senderOpenId)?.agentId;
+    // Route by chat ownership first (isolates multiple environments per user),
+    // falling back to the user's most-recent agent for DMs / unclaimed chats.
+    const route = this.tunnels.resolveAgentForChat(chatId, senderOpenId);
     this.logger.info(
-      { chatId, senderOpenId, routedAgentId, messageId: message.message_id },
+      { chatId, senderOpenId, routedAgentId: route?.tunnel.agentId, via: route?.via, messageId: message.message_id },
       "ROUTE inbound message",
     );
+    if (!route) return;
 
-    this.tunnels.sendToUser(senderOpenId, {
+    this.tunnels.send(route.tunnel.agentId, {
       type: "message",
       chatId,
       messageId: message.message_id,
@@ -147,6 +147,7 @@ export class LarkBot {
     const senderOpenId = event.operator.open_id;
     const value = event.action.value;
     const messageId = event.open_message_id ?? "";
+    const chatId = event.open_chat_id ?? "";
 
     // Forward every card_action to the agent regardless of kind. The agent's
     // PermissionBroker dispatches by value.kind (permission vs
@@ -154,22 +155,28 @@ export class LarkBot {
     // silently dropped AskUserQuestion card taps, so those cards never got a
     // response.
     if (value && typeof value.kind === "string") {
-      const routedAgentId = this.tunnels.getByUserId(senderOpenId)?.agentId;
+      // Route by chat ownership first (same rule as inbound messages), so a
+      // card tap reaches the agent that owns that group.
+      const route = this.tunnels.resolveAgentForChat(chatId, senderOpenId);
       this.logger.info(
         {
+          chatId,
           senderOpenId,
-          routedAgentId,
+          routedAgentId: route?.tunnel.agentId,
+          via: route?.via,
           kind: value.kind,
           requestId: (value as { request_id?: string }).request_id,
         },
         "ROUTE inbound card_action",
       );
-      this.tunnels.sendToUser(senderOpenId, {
-        type: "card_action",
-        senderOpenId,
-        messageId,
-        value: value as unknown as CardActionValue,
-      });
+      if (route) {
+        this.tunnels.send(route.tunnel.agentId, {
+          type: "card_action",
+          senderOpenId,
+          messageId,
+          value: value as unknown as CardActionValue,
+        });
+      }
     }
     return {};
   }
@@ -196,4 +203,6 @@ interface CardActionEvent {
   action: { value: Record<string, unknown> };
   /** open_message_id of the clicked card; needed to redraw it in place. */
   open_message_id?: string;
+  /** open_chat_id of the group the card lives in; used for chat routing. */
+  open_chat_id?: string;
 }

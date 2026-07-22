@@ -161,6 +161,7 @@ async function main() {
 
   wss.on("connection", (ws: WebSocket) => {
     let openId: string | null = null;
+    let agentId: string | null = null;
     let pingInterval: ReturnType<typeof setInterval> | null = null;
 
     ws.on("message", (data) => {
@@ -170,14 +171,19 @@ async function main() {
         try {
           const msg = JSON.parse(raw) as AgentToRelay;
           if (msg.type === "auth") {
-            const id = (msg as unknown as { openId: string }).openId;
+            const authMsg = msg as unknown as { openId: string; agentId?: string };
+            const id = authMsg.openId;
             if (!id) {
               ws.send(JSON.stringify({ type: "error", message: "openId required" }));
               ws.close();
               return;
             }
             openId = id;
-            tunnels.register(openId, openId, ws);
+            // agentId defaults to openId (legacy single-agent behavior). A
+            // distinct agentId lets multiple agents share one openId without
+            // evicting each other; routing then uses chat ownership.
+            agentId = authMsg.agentId || id;
+            tunnels.register(agentId, openId, ws);
             ws.send(JSON.stringify({ type: "connected", openId }));
 
             pingInterval = setInterval(() => {
@@ -196,13 +202,13 @@ async function main() {
         }
       }
 
-      router.handleAgentMessage(openId!, raw);
+      router.handleAgentMessage(agentId!, raw);
     });
 
     ws.on("close", () => {
-      if (openId) {
-        tunnels.remove(openId);
-        logger.info({ openId }, "Agent disconnected");
+      if (agentId) {
+        tunnels.remove(agentId);
+        logger.info({ openId, agentId }, "Agent disconnected");
       }
       if (pingInterval) clearInterval(pingInterval);
     });
