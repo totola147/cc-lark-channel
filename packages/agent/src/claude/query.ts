@@ -60,7 +60,12 @@ export function createQuery(
       const questions = normalizeQuestions(input);
       if (!questions.length) {
         // Malformed input — fall back to allowing the tool untouched.
-        return { behavior: "allow" };
+        // NOTE: always echo `updatedInput`. The installed CLI validates the
+        // canUseTool response with a Zod schema whose allow variant requires
+        // `updatedInput` to be a record; omitting it throws a ZodError
+        // ("expected record, received undefined") that surfaces as
+        // "Tool permission request failed", not a plain deny.
+        return { behavior: "allow", updatedInput: input };
       }
       const answers = await broker.askQuestions(chatId, questions);
       if (answers === null) {
@@ -73,12 +78,12 @@ export function createQuery(
 
     // bypassPermissions: user opted to skip all permission prompts.
     if (bypass) {
-      return { behavior: "allow" };
+      return { behavior: "allow", updatedInput: input };
     }
 
     const allowed = await broker.requestPermission(chatId, toolName, input);
     if (allowed) {
-      return { behavior: "allow" };
+      return { behavior: "allow", updatedInput: input };
     }
     return { behavior: "deny", message: "User denied permission" };
   };
