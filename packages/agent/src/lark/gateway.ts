@@ -113,7 +113,8 @@ export class LarkGateway {
     if (
       value.kind !== "permission" &&
       value.kind !== "question_option" &&
-      value.kind !== "question_submit"
+      value.kind !== "question_submit" &&
+      value.kind !== "question_other"
     ) {
       this.logger.debug({ value }, "Unknown card action kind");
       return;

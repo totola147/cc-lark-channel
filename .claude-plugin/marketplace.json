@@ -1,0 +1,13 @@
+{
+  "name": "cc-lark-channel-local",
+  "owner": {
+    "name": "totola147"
+  },
+  "plugins": [
+    {
+      "name": "cc-lark-channel",
+      "source": "./packages/skill",
+      "description": "Connect Claude Code to Lark/Feishu — chat with your AI dev assistant from anywhere"
+    }
+  ]
+}

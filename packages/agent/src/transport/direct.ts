@@ -155,7 +155,8 @@ export class DirectTransport implements Transport {
     if (
       value.kind !== "permission" &&
       value.kind !== "question_option" &&
-      value.kind !== "question_submit"
+      value.kind !== "question_submit" &&
+      value.kind !== "question_other"
     ) {
       return;
     }

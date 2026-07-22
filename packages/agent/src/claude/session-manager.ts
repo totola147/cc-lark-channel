@@ -84,6 +84,13 @@ export class SessionManager {
       return;
     }
 
+    // If an AskUserQuestion card in this chat is waiting for a free-text
+    // answer (user tapped "Other"), this message IS that answer — consume it
+    // and do not forward it to Claude as a new prompt.
+    if (await this.broker.consumePendingText(msg.chatId, msg.text)) {
+      return;
+    }
+
     let imageDataUris: string[] | undefined;
     if (msg.imageKeys.length > 0) {
       imageDataUris = [];

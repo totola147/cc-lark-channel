@@ -28,6 +28,8 @@ interface PendingQuestion {
   question: QuestionSpec;
   /** Selected option indexes (multi-select accumulates here). */
   selected: number[];
+  /** True after the user tapped "Other": next chat message is the answer. */
+  awaitingText: boolean;
   deferred: Deferred<string | null>;
 }
 
@@ -119,6 +121,7 @@ export class PermissionBroker {
         total: questions.length,
         question,
         selected: [],
+        awaitingText: false,
         deferred,
       });
 
@@ -195,6 +198,22 @@ export class PermissionBroker {
       };
     }
 
+    if (value.kind === "question_other") {
+      // Switch to free-text mode: the next chat message (consumePendingText)
+      // becomes the answer. Redraw the card with a hint.
+      pending.awaitingText = true;
+      return {
+        card: buildQuestionCard({
+          requestId: pending.requestId,
+          qIndex: pending.qIndex,
+          total: pending.total,
+          question,
+          selected: pending.selected,
+          awaitingText: true,
+        }),
+      };
+    }
+
     // question_submit (multi-select only)
     const labels = [...pending.selected]
       .sort((a, b) => a - b)
@@ -212,6 +231,31 @@ export class PermissionBroker {
         answer,
       }),
     };
+  }
+
+  /**
+   * If a question in `chatId` is waiting for a free-text answer (user tapped
+   * "Other"), consume `text` as the answer, redraw the card as resolved, and
+   * return true so the caller does NOT forward the message to Claude. Returns
+   * false when no question is awaiting text (normal message flow).
+   */
+  async consumePendingText(chatId: string, text: string): Promise<boolean> {
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    for (const pending of this.pendingQuestions.values()) {
+      if (pending.chatId !== chatId || !pending.awaitingText) continue;
+      pending.deferred.resolve(trimmed);
+      const card = buildQuestionResolvedCard({
+        header: pending.question.header,
+        question: pending.question.question,
+        answer: trimmed,
+      });
+      await this.transport.updateCard(pending.messageId, card).catch((err) => {
+        this.logger.warn({ err }, "Failed to update resolved question card");
+      });
+      return true;
+    }
+    return false;
   }
 
   private handleTimeout(requestId: string): void {

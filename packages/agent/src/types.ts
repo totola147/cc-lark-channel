@@ -72,7 +72,18 @@ export interface QuestionSubmitActionPayload {
   q: number;
 }
 
+/**
+ * AskUserQuestion — user tapped "Other". Switches the question to free-text
+ * mode; the next chat message in that chat is consumed as the answer.
+ */
+export interface QuestionOtherActionPayload {
+  kind: "question_other";
+  request_id: string;
+  q: number;
+}
+
 export type CardActionPayload =
   | PermissionActionPayload
   | QuestionOptionActionPayload
-  | QuestionSubmitActionPayload;
+  | QuestionSubmitActionPayload
+  | QuestionOtherActionPayload;

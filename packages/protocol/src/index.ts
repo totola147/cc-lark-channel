@@ -13,7 +13,10 @@ export type RelayToAgent =
 export type CardActionValue =
   | { kind: "permission"; request_id: string; choice: string }
   | { kind: "question_option"; request_id: string; q: number; opt: number }
-  | { kind: "question_submit"; request_id: string; q: number };
+  | { kind: "question_submit"; request_id: string; q: number }
+  // User tapped "Other": switch the question to free-text mode and take the
+  // next chat message as the answer.
+  | { kind: "question_other"; request_id: string; q: number };
 
 // --- Agent → Relay (upstream) ---
 

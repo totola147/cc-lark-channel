@@ -181,6 +181,50 @@ describe("PermissionBroker.askQuestions", () => {
     broker.cancelAll();
     expect(await p).toBeNull();
   });
+
+  it("Other: consumes the next chat message as the free-text answer", async () => {
+    const p = broker.askQuestions("chat-1", [
+      { question: "Pick a color", header: "Color", multiSelect: false, options: [{ label: "Red" }, { label: "Blue" }] },
+    ]);
+    await tick();
+    const rid = getQuestionRequestId(lark, 0);
+
+    // Tap "Other" → question enters free-text mode (does not resolve yet).
+    await broker.handleCardAction({ senderOpenId: "u", value: { kind: "question_other", request_id: rid, q: 0 } });
+
+    // A message in a different chat is NOT consumed.
+    expect(await broker.consumePendingText("other-chat", "green")).toBe(false);
+
+    // The next message in this chat IS the answer.
+    expect(await broker.consumePendingText("chat-1", "  Chartreuse  ")).toBe(true);
+    expect(await p).toEqual({ "Pick a color": "Chartreuse" });
+    expect(lark.updateCard).toHaveBeenCalled();
+  });
+
+  it("consumePendingText returns false when no question awaits text", async () => {
+    // No pending question at all.
+    expect(await broker.consumePendingText("chat-1", "hello")).toBe(false);
+
+    // Pending question exists but user has NOT tapped Other → normal flow.
+    broker.askQuestions("chat-1", [
+      { question: "Pick", multiSelect: false, options: [{ label: "A" }] },
+    ]);
+    await tick();
+    expect(await broker.consumePendingText("chat-1", "hello")).toBe(false);
+  });
+
+  it("Other works on multi-select too (typed text overrides toggles)", async () => {
+    const p = broker.askQuestions("chat-1", [
+      { question: "Pick features", multiSelect: true, options: [{ label: "A" }, { label: "B" }] },
+    ]);
+    await tick();
+    const rid = getQuestionRequestId(lark, 0);
+
+    await broker.handleCardAction({ senderOpenId: "u", value: { kind: "question_option", request_id: rid, q: 0, opt: 0 } });
+    await broker.handleCardAction({ senderOpenId: "u", value: { kind: "question_other", request_id: rid, q: 0 } });
+    expect(await broker.consumePendingText("chat-1", "custom answer")).toBe(true);
+    expect(await p).toEqual({ "Pick features": "custom answer" });
+  });
 });
 
 function getQuestionRequestId(lark: LarkClient, callIndex = 0): string {
