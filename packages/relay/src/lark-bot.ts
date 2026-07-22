@@ -146,8 +146,7 @@ export class LarkBot {
   private async handleCardAction(event: CardActionEvent): Promise<unknown> {
     const senderOpenId = event.operator.open_id;
     const value = event.action.value;
-    const messageId = event.open_message_id ?? "";
-    const chatId = event.open_chat_id ?? "";
+    const { messageId, chatId } = extractCardActionIds(event);
 
     // Forward every card_action to the agent regardless of kind. The agent's
     // PermissionBroker dispatches by value.kind (permission vs
@@ -198,11 +197,36 @@ interface ReceiveV1Event {
   message: { message_id: string; chat_id: string; message_type: string; content: string };
 }
 
-interface CardActionEvent {
+/**
+ * Extract the card's message/chat ids from a `card.action.trigger` event.
+ * v2 nests them under `context`; older/alternate surfaces (webhook vs WS,
+ * older schema) may deliver them at the root. Prefer context, fall back to
+ * root, default to empty string. An empty messageId makes `update_card`
+ * silently no-op, which previously broke multi-select question cards (their
+ * checkbox toggle and submit are entirely redraw-driven).
+ */
+export function extractCardActionIds(event: CardActionEvent): {
+  messageId: string;
+  chatId: string;
+} {
+  return {
+    messageId: event.context?.open_message_id ?? event.open_message_id ?? "",
+    chatId: event.context?.open_chat_id ?? event.open_chat_id ?? "",
+  };
+}
+
+export interface CardActionEvent {
   operator: { open_id: string };
   action: { value: Record<string, unknown> };
-  /** open_message_id of the clicked card; needed to redraw it in place. */
+  /**
+   * v2 `card.action.trigger` nests the ids here. `open_message_id` is needed
+   * to redraw the card in place; `open_chat_id` drives chat-ownership routing.
+   */
+  context?: {
+    open_message_id?: string;
+    open_chat_id?: string;
+  };
+  /** Root-level fallbacks for older/alternate event surfaces. */
   open_message_id?: string;
-  /** open_chat_id of the group the card lives in; used for chat routing. */
   open_chat_id?: string;
 }
