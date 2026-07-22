@@ -44,39 +44,59 @@ export function createQuery(
     promptInput = opts.prompt;
   }
 
+  // Whether the user launched with --dangerously-skip-permissions (mapped to
+  // "bypassPermissions" at transfer time). We do NOT pass bypassPermissions to
+  // the SDK: in that mode the SDK auto-resolves every tool and never invokes
+  // canUseTool, which would also skip our AskUserQuestion interception (the
+  // Feishu question cards). Instead we keep canUseTool and auto-allow ordinary
+  // tools here, so nothing prompts while AskUserQuestion still renders cards.
+  const bypass = opts.permissionMode === "bypassPermissions";
+
+  const canUseTool = async (
+    toolName: string,
+    input: Record<string, unknown>,
+  ): Promise<PermissionResult> => {
+    if (toolName === "AskUserQuestion") {
+      const questions = normalizeQuestions(input);
+      if (!questions.length) {
+        // Malformed input — fall back to allowing the tool untouched.
+        return { behavior: "allow" };
+      }
+      const answers = await broker.askQuestions(chatId, questions);
+      if (answers === null) {
+        return { behavior: "deny", message: "User did not answer (interrupted)" };
+      }
+      // The CLI reads `answers` (question text -> answer string) from the
+      // updated input and synthesizes the tool result from it.
+      return { behavior: "allow", updatedInput: { ...input, answers } };
+    }
+
+    // bypassPermissions: user opted to skip all permission prompts.
+    if (bypass) {
+      return { behavior: "allow" };
+    }
+
+    const allowed = await broker.requestPermission(chatId, toolName, input);
+    if (allowed) {
+      return { behavior: "allow" };
+    }
+    return { behavior: "deny", message: "User denied permission" };
+  };
+
   const q = query({
     prompt: promptInput as Parameters<typeof query>[0]["prompt"],
     options: {
       cwd: opts.cwd,
       model: opts.model || undefined,
-      permissionMode: opts.permissionMode,
+      // Map bypassPermissions -> default so the SDK keeps calling canUseTool
+      // (needed for AskUserQuestion); the auto-allow above provides the bypass.
+      permissionMode: bypass ? "default" : opts.permissionMode,
       pathToClaudeCodeExecutable: opts.cliPath,
       abortController: abort,
       env: { ...process.env },
       ...(opts.resumeId ? { resume: opts.resumeId } : {}),
       ...(opts.effort ? { effort: opts.effort } : {}),
-      canUseTool: async (toolName: string, input: Record<string, unknown>): Promise<PermissionResult> => {
-        if (toolName === "AskUserQuestion") {
-          const questions = normalizeQuestions(input);
-          if (!questions.length) {
-            // Malformed input — fall back to allowing the tool untouched.
-            return { behavior: "allow" };
-          }
-          const answers = await broker.askQuestions(chatId, questions);
-          if (answers === null) {
-            return { behavior: "deny", message: "User did not answer (interrupted)" };
-          }
-          // The CLI reads `answers` (question text -> answer string) from the
-          // updated input and synthesizes the tool result from it.
-          return { behavior: "allow", updatedInput: { ...input, answers } };
-        }
-
-        const allowed = await broker.requestPermission(chatId, toolName, input);
-        if (allowed) {
-          return { behavior: "allow" };
-        }
-        return { behavior: "deny", message: "User denied permission" };
-      },
+      canUseTool,
     },
   });
 
