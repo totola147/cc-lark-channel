@@ -94,10 +94,12 @@ jobs:
 
       - name: Health check
         run: |
+          # Use sudo for journalctl: the runner user is not in the
+          # systemd-journal group and cannot read the system journal otherwise.
           for i in $(seq 1 10); do
             sleep 2
             if systemctl is-active --quiet cc-lark-channel.service \
-               && journalctl -u cc-lark-channel.service --since "-30s" --no-pager 2>/dev/null \
+               && sudo journalctl -u cc-lark-channel.service --since "-40s" --no-pager 2>/dev/null \
                   | grep -q "listening for messages"; then
               echo "✅ Agent deployed and ready"
               exit 0
@@ -105,7 +107,7 @@ jobs:
           done
           echo "❌ Agent health check failed"
           sudo systemctl status cc-lark-channel.service --no-pager || true
-          journalctl -u cc-lark-channel.service --since "-60s" --no-pager | tail -20 || true
+          sudo journalctl -u cc-lark-channel.service --since "-60s" --no-pager | tail -20 || true
           exit 1
 
       - name: Rollback on failure
