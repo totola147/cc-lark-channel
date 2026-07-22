@@ -4,7 +4,7 @@ import {
   EventDispatcher,
 } from "@larksuiteoapi/node-sdk";
 import type { Logger } from "pino";
-import type { FeishuCardV2 } from "@cc-lark/protocol";
+import type { FeishuCardV2, CardActionValue } from "@cc-lark/protocol";
 import type { TunnelManager } from "./tunnel.js";
 
 export interface LarkBotConfig {
@@ -146,17 +146,29 @@ export class LarkBot {
   private async handleCardAction(event: CardActionEvent): Promise<unknown> {
     const senderOpenId = event.operator.open_id;
     const value = event.action.value;
+    const messageId = event.open_message_id ?? "";
 
-    if (value.kind === "permission") {
+    // Forward every card_action to the agent regardless of kind. The agent's
+    // PermissionBroker dispatches by value.kind (permission vs
+    // question_option/question_submit). Gating on kind === "permission" here
+    // silently dropped AskUserQuestion card taps, so those cards never got a
+    // response.
+    if (value && typeof value.kind === "string") {
       const routedAgentId = this.tunnels.getByUserId(senderOpenId)?.agentId;
       this.logger.info(
-        { senderOpenId, routedAgentId, requestId: (value as { request_id?: string }).request_id },
+        {
+          senderOpenId,
+          routedAgentId,
+          kind: value.kind,
+          requestId: (value as { request_id?: string }).request_id,
+        },
         "ROUTE inbound card_action",
       );
       this.tunnels.sendToUser(senderOpenId, {
         type: "card_action",
         senderOpenId,
-        value: value as { kind: "permission"; request_id: string; choice: string },
+        messageId,
+        value: value as unknown as CardActionValue,
       });
     }
     return {};
@@ -182,4 +194,6 @@ interface ReceiveV1Event {
 interface CardActionEvent {
   operator: { open_id: string };
   action: { value: Record<string, unknown> };
+  /** open_message_id of the clicked card; needed to redraw it in place. */
+  open_message_id?: string;
 }

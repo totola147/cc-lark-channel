@@ -144,7 +144,7 @@ export class RelayTransport implements Transport {
           value: downstream.value as unknown as CardActionPayload,
         }).then((result) => {
           if (result && result.card) {
-            this.send({ type: "update_card", messageId: "", card: result.card, requestId: this.newId() });
+            this.send({ type: "update_card", messageId: downstream.messageId, card: result.card, requestId: this.newId() });
           }
         }).catch((err) => this.logger.error({ err }, "Error handling card action"));
         break;

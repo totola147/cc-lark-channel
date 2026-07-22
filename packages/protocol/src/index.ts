@@ -4,10 +4,16 @@ import type { FeishuCardV2 } from "./card.js";
 
 export type RelayToAgent =
   | { type: "message"; chatId: string; messageId: string; senderOpenId: string; text: string; imageKeys: string[] }
-  | { type: "card_action"; senderOpenId: string; value: { kind: "permission"; request_id: string; choice: string } }
+  | { type: "card_action"; senderOpenId: string; messageId: string; value: CardActionValue }
   | { type: "paired"; userId: string }
   | { type: "ping" }
   | { type: "error"; message: string };
+
+/** Payload carried by a Feishu card button click, dispatched by kind. */
+export type CardActionValue =
+  | { kind: "permission"; request_id: string; choice: string }
+  | { kind: "question_option"; request_id: string; q: number; opt: number }
+  | { kind: "question_submit"; request_id: string; q: number };
 
 // --- Agent → Relay (upstream) ---
 
