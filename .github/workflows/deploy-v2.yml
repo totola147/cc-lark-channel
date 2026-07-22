@@ -11,7 +11,9 @@ jobs:
 
   deploy-relay:
     needs: ci
-    runs-on: self-hosted
+    # Pinned to the relay host. With two self-hosted runners now online,
+    # a bare `self-hosted` could land on the agent host by mistake.
+    runs-on: [self-hosted, relay-host]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -68,7 +70,10 @@ jobs:
 
   deploy-agent:
     needs: ci
-    runs-on: self-hosted
+    # Pinned to the host where the agent actually runs (mslmgr-134).
+    # The default self-hosted runner lives on a different machine (relay host),
+    # so deploy-agent must target this host's unique label.
+    runs-on: [self-hosted, agent-host]
     steps:
       - name: Record previous commit for rollback
         id: prev
