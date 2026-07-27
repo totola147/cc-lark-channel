@@ -207,7 +207,9 @@ async function main() {
 
     ws.on("close", () => {
       if (agentId) {
-        tunnels.remove(agentId);
+        // Pass this socket so a replaced connection's late close event cannot
+        // evict the agent's current tunnel.
+        tunnels.remove(agentId, ws);
         logger.info({ openId, agentId }, "Agent disconnected");
       }
       if (pingInterval) clearInterval(pingInterval);

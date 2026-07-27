@@ -32,8 +32,20 @@ export class TunnelManager {
     this.logger.info({ agentId, userId }, "Tunnel registered");
   }
 
-  remove(agentId: string): void {
+  /**
+   * Tear down a tunnel. Pass the socket whose `close` fired so a late close
+   * event from a *replaced* connection cannot evict the live one: `register`
+   * closes the old ws for a reconnecting agentId, and that close handler runs
+   * after the new tunnel is already in the map. Without the identity check it
+   * deleted the fresh tunnel and dropped all its chat claims, leaving the
+   * agent "connected" locally but unroutable on the relay.
+   */
+  remove(agentId: string, ws?: WebSocket): void {
     const tunnel = this.tunnels.get(agentId);
+    if (ws && tunnel && tunnel.ws !== ws) {
+      this.logger.info({ agentId }, "Ignoring close from replaced tunnel");
+      return;
+    }
     if (tunnel) {
       // Only clear the user fallback if it still points at this agent.
       if (this.userToAgent.get(tunnel.userId) === agentId) {

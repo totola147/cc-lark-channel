@@ -115,7 +115,19 @@ export class LarkBot {
     const { message } = event;
     const chatId = message.chat_id;
 
-    if (!this.tunnels.isUserOnline(senderOpenId)) {
+    // Resolve the route FIRST, then use it as the liveness gate. Gating on
+    // `isUserOnline` (the per-user fallback pointer) rejected messages in
+    // chats whose owning agent was online but was not the user's most-recent
+    // agent — e.g. after a second agent for the same openId disconnected and
+    // cleared the fallback. The reachable-agent question and the routing
+    // question must be answered by the same lookup.
+    const route = this.tunnels.resolveAgentForChat(chatId, senderOpenId);
+    this.logger.info(
+      { chatId, senderOpenId, routedAgentId: route?.tunnel.agentId, via: route?.via, messageId: message.message_id },
+      "ROUTE inbound message",
+    );
+
+    if (!route) {
       await this.sendText(chatId,
         `⚠️ Agent 未连接\n\n你的 open_id:\n${senderOpenId}\n\n请在本地启动:\nnode dist/index.cjs --relay ws://<relay-ip>:9000 --open-id ${senderOpenId}`
       );
@@ -123,15 +135,6 @@ export class LarkBot {
     }
 
     const parsed = this.parseContent(message.message_type, message.content);
-
-    // Route by chat ownership first (isolates multiple environments per user),
-    // falling back to the user's most-recent agent for DMs / unclaimed chats.
-    const route = this.tunnels.resolveAgentForChat(chatId, senderOpenId);
-    this.logger.info(
-      { chatId, senderOpenId, routedAgentId: route?.tunnel.agentId, via: route?.via, messageId: message.message_id },
-      "ROUTE inbound message",
-    );
-    if (!route) return;
 
     this.tunnels.send(route.tunnel.agentId, {
       type: "message",

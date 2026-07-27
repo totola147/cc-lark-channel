@@ -74,6 +74,54 @@ describe("TunnelManager chat routing", () => {
     expect(r?.tunnel.agentId).toBe("agentB");
   });
 
+  it("keeps the chat owner routable after another agent for the same user leaves", () => {
+    const tm = new TunnelManager(logger);
+    const user = "ou_user";
+    tm.register("agentA", user, fakeWs());
+    tm.claimChat("agentA", "chatA");
+    tm.register("agentB", user, fakeWs()); // userToAgent -> agentB
+
+    tm.remove("agentB"); // fallback pointer for the user is now gone
+
+    // agentA still owns chatA and is online, so the chat stays routable even
+    // though the user has no fallback agent anymore.
+    const r = tm.resolveAgentForChat("chatA", user);
+    expect(r?.tunnel.agentId).toBe("agentA");
+    expect(r?.via).toBe("chat");
+  });
+
+  it("ignores a late close from a replaced socket for the same agentId", () => {
+    const tm = new TunnelManager(logger);
+    const user = "ou_user";
+    const oldWs = fakeWs();
+    const newWs = fakeWs();
+
+    tm.register("agentA", user, oldWs);
+    tm.claimChat("agentA", "chatA");
+    tm.register("agentA", user, newWs); // reconnect: closes oldWs
+    expect(oldWs.close).toHaveBeenCalled();
+
+    // oldWs's close handler fires after the new tunnel is registered.
+    tm.remove("agentA", oldWs);
+
+    const r = tm.resolveAgentForChat("chatA", user);
+    expect(r?.tunnel.agentId).toBe("agentA");
+    expect(r?.tunnel.ws).toBe(newWs);
+    expect(tm.getAllTunnels()).toHaveLength(1);
+  });
+
+  it("still removes the tunnel when the closing socket is the current one", () => {
+    const tm = new TunnelManager(logger);
+    const ws = fakeWs();
+    tm.register("agentA", "ou_user", ws);
+    tm.claimChat("agentA", "chatA");
+
+    tm.remove("agentA", ws);
+
+    expect(tm.getAllTunnels()).toHaveLength(0);
+    expect(tm.resolveAgentForChat("chatA", "ou_user")).toBeUndefined();
+  });
+
   it("reassigns chat ownership when another agent claims the same chat", () => {
     const tm = new TunnelManager(logger);
     const user = "ou_user";
