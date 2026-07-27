@@ -10,6 +10,13 @@ export interface StatusCardState {
   outputTokens: number;
   elapsedMs: number;
   done: boolean;
+  /**
+   * Why the turn ended without completing, if it did. A finished-but-failed
+   * turn must not render as "✅ Done" in green: an aborted startup used to look
+   * identical to a successful answer, which is how a silently killed turn
+   * showed up as a green card with no reply.
+   */
+  failure?: string;
   cwd?: string;
   model?: string;
   /** Max context window size for the active model, if known (used to compute ctx%). */
@@ -61,8 +68,9 @@ export function buildStatusCard(state: StatusCardState): FeishuCardV2 {
     elements.push({ tag: "markdown", content: "⏳ Processing..." });
   }
 
-  const header = state.done ? "✅ Done" : "🤖 Generating...";
-  const template = state.done ? "green" : "blue";
+  const failed = state.done && !!state.failure;
+  const header = failed ? `⚠️ ${state.failure}` : state.done ? "✅ Done" : "🤖 Generating...";
+  const template = failed ? "orange" : state.done ? "green" : "blue";
 
   const footerParts: string[] = [];
   if (state.model) footerParts.push(esc(state.model));

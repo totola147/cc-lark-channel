@@ -133,8 +133,11 @@ export function createQuery(
               }
             }
           }
-          if (msg.type === "system" && msg.subtype === "init" && msg.model) {
-            resolvedModel = msg.model;
+          if (msg.type === "system" && msg.subtype === "init") {
+            if (msg.model) resolvedModel = msg.model;
+            // Surface startup so the session can distinguish "CLI never came
+            // up / resume failed" from "first token is just slow".
+            yield { type: "init" as const, model: msg.model };
           }
           if (msg.type === "result") {
             inputTokens = msg.usage?.input_tokens ?? 0;

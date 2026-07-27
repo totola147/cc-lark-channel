@@ -30,6 +30,14 @@ export interface SessionStatus {
 }
 
 export type RenderEvent =
+  /**
+   * The CLI launched and (for a resumed session) the resume succeeded. Emitted
+   * from the SDK's `system`/`init` message, well before the first token. This
+   * is the liveness signal for startup timeouts: gating them on the first
+   * text/tool event instead would abort healthy turns whose first token is
+   * simply slow (large context, remote proxy, extended thinking).
+   */
+  | { type: "init"; model?: string }
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }

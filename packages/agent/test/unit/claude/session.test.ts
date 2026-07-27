@@ -234,6 +234,123 @@ describe("ClaudeSession", () => {
     const textCalls = vi.mocked(lark.sendText).mock.calls.map((c) => c[1]);
     expect(textCalls).not.toContain("partial answer");
   });
+
+  it("does not abort a resumed turn whose first token is slow, once init arrived", async () => {
+    vi.useFakeTimers();
+    try {
+      session.providerSessionId = "live-session";
+
+      // init lands fast (CLI is up), but the first token takes 3 minutes —
+      // far beyond the startup window. This must NOT be aborted.
+      const events = async function* () {
+        yield { type: "init" as const, model: "sonnet" };
+        await new Promise<void>((r) => setTimeout(r, 180_000));
+        yield { type: "text" as const, text: "slow but valid answer" };
+        yield { type: "turn_end" as const, durationMs: 180_000, inputTokens: 9, outputTokens: 3 };
+      };
+      const interrupt = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(createQuery).mockReturnValue({
+        events: Object.assign(events(), { sessionId: "live-session" }),
+        interrupt,
+      });
+
+      await session.submit("q");
+      await vi.advanceTimersByTimeAsync(200_000);
+      await vi.runAllTimersAsync();
+
+      expect(interrupt).not.toHaveBeenCalled();
+      expect(vi.mocked(createQuery)).toHaveBeenCalledTimes(1);
+      const textCalls = vi.mocked(lark.sendText).mock.calls.map((c) => c[1]);
+      expect(textCalls).toContain("slow but valid answer");
+      expect(textCalls.some((t) => String(t).includes("超时"))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a failed turn on the card instead of a green Done", async () => {
+    vi.useFakeTimers();
+    try {
+      // Fresh turn (no providerSessionId) where the CLI never emits anything.
+      let release: (() => void) | null = null;
+      const hanging = async function* () {
+        await new Promise<void>((r) => { release = r; });
+      };
+      vi.mocked(createQuery).mockReturnValue({
+        events: Object.assign(hanging(), { sessionId: undefined }),
+        interrupt: vi.fn(() => { release?.(); return Promise.resolve(); }),
+      });
+
+      await session.submit("q");
+      await vi.advanceTimersByTimeAsync(30_001);
+      await vi.runAllTimersAsync();
+
+      // No retry for a fresh turn, and the user is told explicitly.
+      expect(vi.mocked(createQuery)).toHaveBeenCalledTimes(1);
+      const textCalls = vi.mocked(lark.sendText).mock.calls.map((c) => String(c[1]));
+      expect(textCalls.some((t) => t.includes("启动超时"))).toBe(true);
+      expect(session.getState()).toBe("idle");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries fresh when a resumed CLI never starts within 30s", async () => {
+    vi.useFakeTimers();
+    try {
+      session.providerSessionId = "stale-session";
+
+      // First attempt: resume hangs, then the abort ends iteration cleanly with
+      // zero events — exactly how query.ts swallows the abort error.
+      let abortHang: (() => void) | null = null;
+      const hanging = async function* () {
+        await new Promise<void>((resolve) => {
+          abortHang = resolve;
+        });
+        // returns without yielding anything
+      };
+      const firstInterrupt = vi.fn(() => {
+        abortHang?.();
+        return Promise.resolve();
+      });
+
+      const secondEvents = async function* () {
+        yield { type: "text" as const, text: "fresh answer" };
+        yield { type: "turn_end" as const, durationMs: 10, inputTokens: 1, outputTokens: 1 };
+      };
+
+      vi.mocked(createQuery)
+        .mockReturnValueOnce({
+          events: Object.assign(hanging(), { sessionId: undefined }),
+          interrupt: firstInterrupt,
+        })
+        .mockReturnValueOnce({
+          events: Object.assign(secondEvents(), { sessionId: "new-session" }),
+          interrupt: vi.fn(),
+        });
+
+      await session.submit("q");
+      expect(vi.mocked(createQuery).mock.calls[0]?.[0].resumeId).toBe("stale-session");
+
+      await vi.advanceTimersByTimeAsync(30_001);
+      await vi.runAllTimersAsync();
+
+      // The stalled turn must not be silently dropped: a second attempt runs
+      // without a resumeId and its answer reaches the user.
+      expect(firstInterrupt).toHaveBeenCalled();
+      expect(vi.mocked(createQuery)).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(createQuery).mock.calls[1]?.[0].resumeId).toBeUndefined();
+      expect(vi.mocked(createQuery).mock.calls[1]?.[0].prompt).toBe("q");
+
+      const textCalls = vi.mocked(lark.sendText).mock.calls.map((c) => c[1]);
+      expect(textCalls.some((t) => String(t).includes("启动超时"))).toBe(true);
+      expect(textCalls).toContain("fresh answer");
+      expect(session.getState()).toBe("idle");
+      expect(session.providerSessionId).toBe("new-session");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("chunkText", () => {

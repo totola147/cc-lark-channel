@@ -7,6 +7,12 @@ import { createQuery, type QueryHandle } from "./query.js";
 import { buildStatusCard, type StatusCardState } from "../lark/cards/status-card.js";
 import { createDeferred, type Deferred } from "../util/deferred.js";
 
+/**
+ * How long to wait for the CLI's `init` event before declaring the turn dead.
+ * This bounds process startup only — never generation — so it can stay short.
+ */
+const STARTUP_TIMEOUT_MS = 30_000;
+
 interface QueuedInput {
   text: string;
   imageDataUris?: string[];
@@ -147,27 +153,78 @@ export class ClaudeSession {
 
     let completedNaturally = false;
     let retrying = false;
+    let startupTimedOut = false;
+    let failure: string | undefined;
+    const wasResume = !!this.providerSessionId;
     try {
       let receivedFirstEvent = false;
       let startupTimer: ReturnType<typeof setTimeout> | null = null;
 
-      // If resuming a session, set a 30s timeout for first event
-      if (this.providerSessionId) {
-        startupTimer = setTimeout(async () => {
+      // Startup watchdog. The CLI emits `init` — now surfaced as a render event
+      // — about a second after launching, so a window with *no* event at all
+      // means it never came up (bad cli_path, failed spawn, unusable session).
+      //
+      // This deliberately does NOT measure time-to-first-token. It used to:
+      // `init` was swallowed in query.ts, so the first event was the first
+      // text/thinking/tool block, and any resumed turn whose first token took
+      // longer than the window got aborted — reproducibly, on every turn with a
+      // large context or a slow upstream. Arm it for fresh turns too; without
+      // it, a CLI that never starts leaves the turn generating forever.
+      startupTimer = setTimeout(() => {
+        if (!receivedFirstEvent) {
+          startupTimedOut = true;
+          this.logger.warn(
+            { wasResume, timeoutMs: STARTUP_TIMEOUT_MS },
+            "Startup timeout — no events from CLI, aborting turn",
+          );
+          void handle.interrupt();
+        }
+      }, STARTUP_TIMEOUT_MS);
+
+      try {
+        for await (const event of handle.events) {
           if (!receivedFirstEvent) {
-            this.logger.warn("Resume timeout — no events in 30s, retrying fresh");
-            await handle.interrupt();
+            receivedFirstEvent = true;
+            if (startupTimer) clearTimeout(startupTimer);
           }
-        }, 30000);
+          await this.handleEvent(event);
+        }
+      } finally {
+        // Also clear on the throw path: a timer left armed would abort an
+        // already-finished handle and log a bogus resume timeout.
+        if (startupTimer) clearTimeout(startupTimer);
       }
 
-      for await (const event of handle.events) {
-        if (!receivedFirstEvent) {
-          receivedFirstEvent = true;
-          if (startupTimer) clearTimeout(startupTimer);
+      // A timed-out startup does NOT reach the catch below: interrupt() aborts
+      // the controller, and the query iterator swallows the resulting abort
+      // error and returns cleanly (see query.ts). So the loop just ends with
+      // zero events, which used to fall through as a successful turn with an
+      // empty reply — the prompt vanished, leaving only a green "✅ Done" card
+      // frozen at the last heartbeat tick. Handle it explicitly.
+      if (startupTimedOut && !receivedFirstEvent) {
+        const seconds = Math.round(STARTUP_TIMEOUT_MS / 1000);
+        if (wasResume) {
+          // Resume specifically may be at fault, so drop it and try once fresh.
+          retrying = true;
+          this.providerSessionId = undefined;
+          this.currentHandle = null;
+          this.state = "idle";
+          await this.finalizeCard(`启动超时 ${seconds}s`);
+          await this.transport
+            .sendText(this.chatId, `⚠️ Claude 启动超时（${seconds} 秒无响应），正在用新会话重试。原对话历史不会带入。`)
+            .catch(() => {});
+          this.runTurn(text, imageDataUris);
+          return;
         }
-        await this.handleEvent(event);
+        // Fresh turn: nothing left to fall back to. Report instead of retrying
+        // into the same failure.
+        failure = `启动超时 ${seconds}s`;
+        await this.transport
+          .sendText(this.chatId, `❌ Claude 启动超时（${seconds} 秒无响应），本轮已取消。请重发消息。`)
+          .catch(() => {});
+        return;
       }
+
       // Capture session ID if available
       const sessionId = (handle.events as { sessionId?: string }).sessionId;
       if (sessionId) this.providerSessionId = sessionId;
@@ -186,6 +243,7 @@ export class ClaudeSession {
         return;
       }
       this.logger.error({ err }, "Turn execution error");
+      failure = "执行出错";
       await this.transport.sendText(this.chatId, `❌ Error: ${msg}`).catch(() => {});
     } finally {
       // The resume-retry path re-enters runTurn and owns its own lifecycle;
@@ -193,7 +251,7 @@ export class ClaudeSession {
       if (!retrying) {
         this.currentHandle = null;
         this.state = "idle";
-        await this.finalizeCard();
+        await this.finalizeCard(failure);
         // Post the final reply only on natural completion. On error/abort the
         // buffer is left as-is (interrupt clears it) so no partial is posted.
         if (completedNaturally) await this.postFinalReply();
@@ -205,6 +263,11 @@ export class ClaudeSession {
 
   private async handleEvent(event: RenderEvent): Promise<void> {
     switch (event.type) {
+      case "init":
+        // Proof the CLI is up (see the startup watchdog in runTurn). Also lets
+        // the card appear immediately instead of on the first heartbeat.
+        if (event.model) this.cardState.model = event.model;
+        break;
       case "thinking":
         if (!this.config.render.hide_thinking) {
           this.cardState.thinking = event.text;
@@ -308,8 +371,20 @@ export class ClaudeSession {
     }
   }
 
-  private async finalizeCard(): Promise<void> {
+  /**
+   * Close out the status card. `failure` marks the turn as not-completed so the
+   * card shows a warning instead of a green "✅ Done".
+   *
+   * Elapsed is recomputed here unless a `turn_end` already supplied the
+   * authoritative duration: otherwise the card froze at the last heartbeat tick
+   * (e.g. a turn aborted at 30s displayed 28.0s, the 7th 4s beat).
+   */
+  private async finalizeCard(failure?: string): Promise<void> {
     this.stopHeartbeat();
+    if (failure) this.cardState.failure = failure;
+    if (!this.cardState.done && this.turnStartMs) {
+      this.cardState.elapsedMs = Date.now() - this.turnStartMs;
+    }
     if (this.cardUpdateTimer) {
       clearTimeout(this.cardUpdateTimer);
       this.cardUpdateTimer = null;
