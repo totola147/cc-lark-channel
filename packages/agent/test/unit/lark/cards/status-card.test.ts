@@ -112,7 +112,8 @@ describe("buildStatusCard", () => {
     const footer = card.body.elements.find((e) => e.tag === "markdown" && (e as { content: string }).content.includes("tok"));
     expect((footer as { content: string }).content).toContain("in: 500");
     expect((footer as { content: string }).content).toContain("out: 200");
-    expect((footer as { content: string }).content).toContain("5.0s");
+    // 完成后的卡片与回复卡片同款，不再带耗时
+    expect((footer as { content: string }).content).not.toContain("5.0s");
   });
 
   it("shows model, context percentage and effort in footer", () => {
@@ -196,3 +197,37 @@ describe("buildReplyCard", () => {
     expect(card.body.elements).toEqual([{ tag: "markdown", content: "hello" }]);
   });
 });
+
+describe("status card footer style", () => {
+  const base: StatusCardState = {
+    outputText: "answer",
+    inputTokens: 24497,
+    outputTokens: 13,
+    elapsedMs: 3400,
+    done: true,
+    cwd: "/home/u/tmp",
+    model: "claude-opus-4-5-20251101",
+    contextWindow: 200_000,
+    effort: "xhigh",
+    toolCount: 2,
+  };
+  const footers = (s: StatusCardState) => {
+    const els = buildStatusCard(s).body.elements;
+    const hr = els.findIndex((e) => e.tag === "hr");
+    return els.slice(hr + 1) as { tag: string; content: string }[];
+  };
+
+  it("done card has exactly one footer line, same as the reply card, no 📂 line", () => {
+    const f = footers(base);
+    expect(f).toHaveLength(1);
+    expect(f[0]!.content).toBe('<font color="grey">Opus 4.5 | tmp | in: 24497 out: 13 tok | ctx: 12% | effort: xhigh</font>');
+    expect(f[0]!.content).not.toContain("📂");
+  });
+
+  it("generating card stays single-line with elapsed and tool count appended", () => {
+    const f = footers({ ...base, done: false });
+    expect(f).toHaveLength(1);
+    expect(f[0]!.content).toContain("effort: xhigh | 3.4s | tools: 2");
+  });
+});
+

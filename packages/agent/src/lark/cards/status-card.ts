@@ -72,15 +72,15 @@ export function buildStatusCard(state: StatusCardState): FeishuCardV2 {
   const header = failed ? `⚠️ ${state.failure}` : state.done ? "✅ Done" : "🤖 Generating...";
   const template = failed ? "orange" : state.done ? "green" : "blue";
 
-  // 状态卡片在统一状态栏之后追加耗时和工具数（仅过程中有意义）
-  const extra = [`${(state.elapsedMs / 1000).toFixed(1)}s`];
-  if (state.toolCount) extra.push(`tools: ${state.toolCount}`);
-  elements.push({ tag: "hr" });
-  elements.push(statusBarElement([buildStatusLine(state), ...extra].join(" | ")));
-
-  if (state.cwd) {
-    elements.push({ tag: "markdown", content: `<font color="grey">📂 ${esc(state.cwd)}</font>` });
+  // 所有卡片统一为单行状态栏（与回复卡片一致），不再单独显示 📂 路径行——
+  // 目录已在状态栏中。仅生成中在同一行末尾追加耗时和工具数作为存活信号。
+  const parts = [buildStatusLine(state)];
+  if (!state.done) {
+    parts.push(`${(state.elapsedMs / 1000).toFixed(1)}s`);
+    if (state.toolCount) parts.push(`tools: ${state.toolCount}`);
   }
+  elements.push({ tag: "hr" });
+  elements.push(statusBarElement(parts.join(" | ")));
 
   return {
     schema: "2.0",
