@@ -152,7 +152,7 @@ Lark SDK 的 WSClient 在 ESM 模式下不触发事件。构建输出为 CJS 格
 
 **终端 → 飞书**：`cc-session` 起会话 → 按 `Ctrl+K`（或带外 `cc-transfer`）→ agent 建/复用 workspace 群、绑定会话、贴最近 3 轮回顾 → claude 退出、wrapper 等待。
 
-**飞书 → 终端**：群里发 `/handback` → agent 解绑并经 socket 推 resume → wrapper 在原终端 `claude --resume` 恢复。无 wrapper 时提示手动 `claude --resume <id>`。
+**飞书 → 终端**：群里发 `/handback`（缩写 `/hb`）→ agent 解绑并经 socket 推 resume → wrapper 在原终端 `claude --resume` 恢复。无 wrapper 时提示手动 `claude --resume <id>`。
 
 **安全**：`/workspace`/transfer 前用 session-registry 闸门拒绝接管仍被活终端持有的会话；交还后 `released` 守卫阻止飞书侧再写入，避免双写。
 

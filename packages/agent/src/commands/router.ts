@@ -33,8 +33,10 @@ export class CommandRouter {
     if (!text.startsWith("/")) return null;
 
     const spaceIdx = text.indexOf(" ");
-    const command = spaceIdx === -1 ? text : text.slice(0, spaceIdx);
+    const raw = spaceIdx === -1 ? text : text.slice(0, spaceIdx);
     const args = spaceIdx === -1 ? "" : text.slice(spaceIdx + 1).trim();
+    // 缩写命令统一归一成全名，后续作用域校验和分发都只认全名
+    const command = COMMAND_ALIASES[raw] ?? raw;
 
     const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/effort", "/cd", "/bg", "/fg", "/kill", "/attach", "/update", "/workspace", "/workspaces", "/close", "/handback", "/help"];
     if (!known.includes(command)) return null;
@@ -392,6 +394,11 @@ export class CommandRouter {
   }
 }
 
+/** 命令缩写 → 全名 */
+const COMMAND_ALIASES: Record<string, string> = {
+  "/hb": "/handback",
+};
+
 const HELP_TEXT = `cc-lark-channel commands:
 
 /new — Start new session
@@ -406,6 +413,7 @@ const HELP_TEXT = `cc-lark-channel commands:
 /workspace <path> [session-id] — Create a workspace group for a project
 /workspaces — List all workspace groups
 /close — Close current workspace group
+/handback (/hb) — Hand the session back to the terminal (workspace group)
 /update — Pull latest code and restart
 /mode <mode> — Set permission mode
 /model <name> — Switch model

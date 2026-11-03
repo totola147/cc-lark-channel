@@ -42,6 +42,11 @@ describe("CommandRouter.match", () => {
     expect(router.match(mockMsg(""))).toBeNull();
   });
 
+  it("resolves /hb to /handback", () => {
+    expect(router.match(mockMsg("/handback"))).toEqual({ command: "/handback", args: "" });
+    expect(router.match(mockMsg("/hb"))).toEqual({ command: "/handback", args: "" });
+  });
+
   it("handles leading whitespace", () => {
     expect(router.match(mockMsg("  /new"))).toEqual({ command: "/new", args: "" });
   });
