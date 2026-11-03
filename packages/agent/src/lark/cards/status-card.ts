@@ -72,19 +72,11 @@ export function buildStatusCard(state: StatusCardState): FeishuCardV2 {
   const header = failed ? `⚠️ ${state.failure}` : state.done ? "✅ Done" : "🤖 Generating...";
   const template = failed ? "orange" : state.done ? "green" : "blue";
 
-  const footerParts: string[] = [];
-  if (state.model) footerParts.push(esc(state.model));
-  footerParts.push(`in: ${state.inputTokens} out: ${state.outputTokens} tok`);
-  footerParts.push(`${(state.elapsedMs / 1000).toFixed(1)}s`);
-  if (state.toolCount) footerParts.push(`tools: ${state.toolCount}`);
-  if (state.contextWindow && state.contextWindow > 0) {
-    const pct = Math.min(100, Math.round((state.inputTokens / state.contextWindow) * 100));
-    footerParts.push(`ctx: ${pct}%`);
-  }
-  if (state.effort) footerParts.push(`effort: ${esc(state.effort)}`);
-  const footer = footerParts.join(" · ");
+  // 状态卡片在统一状态栏之后追加耗时和工具数（仅过程中有意义）
+  const extra = [`${(state.elapsedMs / 1000).toFixed(1)}s`];
+  if (state.toolCount) extra.push(`tools: ${state.toolCount}`);
   elements.push({ tag: "hr" });
-  elements.push({ tag: "markdown", content: `<font color="grey">${footer}</font>` });
+  elements.push(statusBarElement([buildStatusLine(state), ...extra].join(" | ")));
 
   if (state.cwd) {
     elements.push({ tag: "markdown", content: `<font color="grey">📂 ${esc(state.cwd)}</font>` });
@@ -96,6 +88,79 @@ export function buildStatusCard(state: StatusCardState): FeishuCardV2 {
     header: { title: { tag: "plain_text", content: header }, template },
     body: { elements },
   };
+}
+
+/** 状态栏所需的统计字段（StatusCardState 的子集）。 */
+export type StatusLineState = Pick<
+  StatusCardState,
+  "model" | "cwd" | "inputTokens" | "outputTokens" | "contextWindow" | "effort"
+>;
+
+/**
+ * 底部状态栏文本，形如：
+ * `Opus 4.5 | tmp | in: 24497 out: 13 tok | ctx: 12% | effort: xhigh`
+ * 未知字段（模型、cwd、上下文窗口、effort）直接省略。
+ */
+export function buildStatusLine(state: StatusLineState): string {
+  const parts: string[] = [];
+  if (state.model) parts.push(esc(formatModelName(state.model)));
+  const dir = state.cwd ? cwdBasename(state.cwd) : "";
+  if (dir) parts.push(esc(dir));
+  parts.push(`in: ${state.inputTokens} out: ${state.outputTokens} tok`);
+  if (state.contextWindow && state.contextWindow > 0) {
+    const pct = Math.min(100, Math.round((state.inputTokens / state.contextWindow) * 100));
+    parts.push(`ctx: ${pct}%`);
+  }
+  if (state.effort) parts.push(`effort: ${esc(state.effort)}`);
+  return parts.join(" | ");
+}
+
+/**
+ * 最终回复卡片：正文为回复 markdown，`statusLine` 存在时在底部加分隔线和灰色状态栏。
+ * 长回复分片发送时，只有最后一片带状态栏。
+ */
+export function buildReplyCard(markdown: string, statusLine?: string): FeishuCardV2 {
+  const elements: FeishuCardV2["body"]["elements"] = [{ tag: "markdown", content: markdown }];
+  if (statusLine) {
+    elements.push({ tag: "hr" });
+    elements.push(statusBarElement(statusLine));
+  }
+  return { schema: "2.0", body: { elements } };
+}
+
+/**
+ * 把 SDK 返回的模型 id 转成简短显示名：
+ * `claude-opus-4-5-20251101` → `Opus 4.5`，`claude-3-5-sonnet-20241022` → `Sonnet 3.5`，
+ * `opus` → `Opus`。无法识别时原样返回（去掉 `[1m]` 之类的后缀）。
+ */
+export function formatModelName(model: string): string {
+  const id = model.trim().replace(/\[[^\]]*\]$/, "");
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+  // 新格式：claude-<family>-<major>[-<minor>][-<date>]
+  const modern = /^(?:claude-)?(opus|sonnet|haiku)(?:-(\d+)(?:-(\d{1,2}))?)?(?=$|-)/i.exec(id);
+  if (modern) {
+    const [, family, major, minor] = modern;
+    const version = major ? (minor ? `${major}.${minor}` : major) : "";
+    return version ? `${cap(family!)} ${version}` : cap(family!);
+  }
+  // 旧格式：claude-<major>[-<minor>]-<family>[-<date>]
+  const legacy = /^claude-(\d+)(?:-(\d{1,2}))?-(opus|sonnet|haiku)(?=$|-)/i.exec(id);
+  if (legacy) {
+    const [, major, minor, family] = legacy;
+    return `${cap(family!)} ${minor ? `${major}.${minor}` : major}`;
+  }
+  return id;
+}
+
+function cwdBasename(cwd: string): string {
+  const trimmed = cwd.replace(/[\\/]+$/, "");
+  if (!trimmed) return "/";
+  const segs = trimmed.split(/[\\/]/);
+  return segs[segs.length - 1] || trimmed;
+}
+
+function statusBarElement(line: string): FeishuCardV2["body"]["elements"][number] {
+  return { tag: "markdown", content: `<font color="grey">${line}</font>` };
 }
 
 function esc(text: string): string {

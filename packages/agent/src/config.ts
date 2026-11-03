@@ -48,6 +48,9 @@ const RenderSchema = z.object({
   // (in addition to the in-place status card) so it notifies and isn't buried
   // above mid-turn question cards. Set false to keep only the status card.
   final_reply_as_message: z.boolean().optional().default(true),
+  // 最终回复的消息形式："card" 为卡片（正文 + 底部状态栏：模型 | 目录 | tok | ctx | effort），
+  // "text" 为纯文本（旧行为）。卡片发送失败时自动回退为纯文本。
+  final_reply_format: z.enum(["card", "text"]).optional().default("card"),
 }).optional().default({
   hide_thinking: false,
   show_turn_stats: true,
@@ -55,6 +58,7 @@ const RenderSchema = z.object({
   card_update_interval_ms: 500,
   heartbeat_interval_ms: 4000,
   final_reply_as_message: true,
+  final_reply_format: "card" as const,
 });
 
 const PersistenceSchema = z.object({

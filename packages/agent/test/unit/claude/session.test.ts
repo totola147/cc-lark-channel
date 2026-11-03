@@ -31,6 +31,7 @@ const mockConfig: AppConfig = {
     card_update_interval_ms: 50,
     heartbeat_interval_ms: 0,
     final_reply_as_message: true,
+    final_reply_format: "text",
   },
   persistence: { state_dir: "/tmp" },
   logging: { level: "info" },
@@ -194,6 +195,67 @@ describe("ClaudeSession", () => {
     await session.submit("q");
     await new Promise((r) => setTimeout(r, 200));
     expect(lark.sendText).toHaveBeenCalledWith("chat-1", "The answer is 42.");
+  });
+
+  describe("final_reply_format = card", () => {
+    const cardConfig: AppConfig = {
+      ...mockConfig,
+      render: { ...mockConfig.render, final_reply_format: "card" },
+    };
+
+    function cardSession() {
+      return new ClaudeSession("chat-1", cardConfig, lark, broker, logger, "/home/u/tmp", "default", "", "xhigh");
+    }
+
+    function replyEvents() {
+      return async function* () {
+        yield { type: "init" as const, model: "claude-opus-4-5-20251101" };
+        yield { type: "text" as const, text: "The answer is 42." };
+        yield {
+          type: "turn_end" as const, durationMs: 100, inputTokens: 24497, outputTokens: 13,
+          model: "claude-opus-4-5-20251101", contextWindow: 200_000,
+        };
+      };
+    }
+
+    it("posts the final reply as a card with a status bar", async () => {
+      const s = cardSession();
+      vi.mocked(createQuery).mockReturnValue({
+        events: Object.assign(replyEvents()(), { sessionId: "s1" }),
+        interrupt: vi.fn(),
+      });
+
+      await s.submit("q");
+      await new Promise((r) => setTimeout(r, 200));
+
+      const textCalls = vi.mocked(lark.sendText).mock.calls.map((c) => c[1]);
+      expect(textCalls).not.toContain("The answer is 42.");
+      const replyCard = vi.mocked(lark.sendCard).mock.calls
+        .map((c) => c[1] as { header?: unknown; body: { elements: { tag: string; content?: string }[] } })
+        .find((c) => c.body.elements[0]?.content === "The answer is 42.");
+      expect(replyCard).toBeDefined();
+      expect(replyCard!.header).toBeUndefined();
+      const last = replyCard!.body.elements.at(-1)!;
+      expect(last.content).toContain("Opus 4.5 | tmp | in: 24497 out: 13 tok | ctx: 12% | effort: xhigh");
+    });
+
+    it("falls back to text when the reply card is rejected", async () => {
+      const s = cardSession();
+      // 状态卡片发送成功，回复卡片失败
+      vi.mocked(lark.sendCard)
+        .mockResolvedValueOnce("card-1")
+        .mockRejectedValue(new Error("card rejected"));
+      vi.mocked(createQuery).mockReturnValue({
+        events: Object.assign(replyEvents()(), { sessionId: "s1" }),
+        interrupt: vi.fn(),
+      });
+
+      await s.submit("q");
+      await new Promise((r) => setTimeout(r, 200));
+
+      const textCalls = vi.mocked(lark.sendText).mock.calls.map((c) => c[1]);
+      expect(textCalls).toContain("The answer is 42.");
+    });
   });
 
   it("final reply is only the text after the last tool call", async () => {

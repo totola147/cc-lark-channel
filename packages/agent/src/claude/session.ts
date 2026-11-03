@@ -4,7 +4,7 @@ import type { PermissionBroker } from "./permission-broker.js";
 import type { AppConfig } from "../config.js";
 import type { RenderEvent, SessionState, PermissionMode, EffortLevel } from "../types.js";
 import { createQuery, type QueryHandle } from "./query.js";
-import { buildStatusCard, type StatusCardState } from "../lark/cards/status-card.js";
+import { buildReplyCard, buildStatusCard, buildStatusLine, type StatusCardState } from "../lark/cards/status-card.js";
 import { createDeferred, type Deferred } from "../util/deferred.js";
 
 /**
@@ -404,7 +404,21 @@ export class ClaudeSession {
     if (!reply) return;
     // Feishu text messages cap around 30k bytes; chunk conservatively on
     // paragraph boundaries to stay well under the limit.
-    for (const chunk of chunkText(reply, 3000)) {
+    const chunks = chunkText(reply, 3000);
+    const asCard = this.config.render.final_reply_format !== "text";
+    const statusLine = asCard ? buildStatusLine(this.cardState) : undefined;
+    for (const [i, chunk] of chunks.entries()) {
+      if (asCard) {
+        // 状态栏只挂在最后一片上，避免长回复每片都重复
+        const card = buildReplyCard(chunk, i === chunks.length - 1 ? statusLine : undefined);
+        try {
+          await this.transport.sendCard(this.chatId, card);
+          continue;
+        } catch (err) {
+          // 卡片被拒（如 markdown 不兼容）时回退纯文本，保证回复一定送达
+          this.logger.warn({ err }, "Failed to post final reply card, falling back to text");
+        }
+      }
       await this.transport.sendText(this.chatId, chunk).catch((err) => {
         this.logger.warn({ err }, "Failed to post final reply message");
       });

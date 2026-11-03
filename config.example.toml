@@ -25,6 +25,7 @@ inline_max_bytes = 1500          # max bytes for tool input preview in cards
 card_update_interval_ms = 500    # min interval between card updates
 heartbeat_interval_ms = 4000     # refresh status card at least this often while working (0 = off)
 final_reply_as_message = true    # also post the final answer as a new bottom message (notifies)
+final_reply_format = "card"      # "card": reply card with status bar (model | dir | tok | ctx | effort); "text": plain text
 
 [persistence]
 state_dir = "~/.cc-lark-channel"
