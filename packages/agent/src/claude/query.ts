@@ -1,8 +1,10 @@
 import { query, type PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import type { Logger } from "../util/logger.js";
 import type { RenderEvent, PermissionMode, EffortLevel } from "../types.js";
-import type { PermissionBroker } from "./permission-broker.js";
+import type { SessionPermissions } from "./permission-broker.js";
 import type { QuestionSpec } from "../lark/cards/question-card.js";
+import { parseImageDataUri } from "../util/image-mime.js";
+import { buildEnv } from "./profile.js";
 
 export interface QueryOptions {
   prompt: string;
@@ -13,6 +15,15 @@ export interface QueryOptions {
   cliPath: string;
   resumeId?: string;
   effort?: EffortLevel;
+  /**
+   * 新版 CLI 默认不回传 thinking 正文（只给签名）。传 "summarized" 让 CLI 返回
+   * 摘要文本，状态卡片才能显示思考过程。只设置 display，不改 thinking 类型。
+   */
+  thinkingDisplay?: "summarized" | "omitted";
+  /** 运行档解析出的环境变量覆盖；值为 undefined 表示从子进程环境中删除。 */
+  envOverrides?: Record<string, string | undefined>;
+  /** 等同 claude --settings。 */
+  settings?: string;
 }
 
 export interface QueryHandle {
@@ -23,7 +34,7 @@ export interface QueryHandle {
 export function createQuery(
   opts: QueryOptions,
   chatId: string,
-  broker: PermissionBroker,
+  broker: Pick<SessionPermissions, "requestPermission" | "askQuestions">,
   logger: Logger,
 ): QueryHandle {
   const abort = new AbortController();
@@ -35,8 +46,8 @@ export function createQuery(
     const content: unknown[] = [];
     if (opts.prompt) content.push({ type: "text", text: opts.prompt });
     for (const uri of opts.imageDataUris) {
-      const data = uri.replace(/^data:image\/\w+;base64,/, "");
-      content.push({ type: "image", source: { type: "base64", media_type: "image/png", data } });
+      const { mediaType, data } = parseImageDataUri(uri);
+      content.push({ type: "image", source: { type: "base64", media_type: mediaType, data } });
     }
     const msg = { type: "user" as const, message: { role: "user" as const, content }, parent_tool_use_id: null };
     promptInput = (async function* () { yield msg; })();
@@ -98,9 +109,11 @@ export function createQuery(
       permissionMode: bypass ? "default" : opts.permissionMode,
       pathToClaudeCodeExecutable: opts.cliPath,
       abortController: abort,
-      env: { ...process.env },
+      env: buildEnv(process.env, opts.envOverrides),
+      ...(opts.settings ? { settings: opts.settings } : {}),
       ...(opts.resumeId ? { resume: opts.resumeId } : {}),
       ...(opts.effort ? { effort: opts.effort } : {}),
+      ...(opts.thinkingDisplay ? { extraArgs: { "thinking-display": opts.thinkingDisplay } } : {}),
       canUseTool,
     },
   });
@@ -116,6 +129,19 @@ export function createQuery(
 
       try {
         for await (const msg of q as AsyncIterable<SDKMessage>) {
+          // 工具结果在 SDK 里是 user 消息（tool_result 块），不在 assistant 消息里。
+          if (msg.type === "user" && Array.isArray(msg.message?.content)) {
+            for (const block of msg.message.content) {
+              if (block.type === "tool_result") {
+                yield {
+                  type: "tool_result" as const,
+                  toolUseId: block.tool_use_id ?? "",
+                  isError: !!block.is_error,
+                  text: toolResultText(block.content),
+                };
+              }
+            }
+          }
           if (msg.type === "assistant" && msg.message?.content) {
             for (const block of msg.message.content) {
               if (block.type === "text" && block.text) {
@@ -127,14 +153,12 @@ export function createQuery(
               if (block.type === "tool_use") {
                 yield { type: "tool_use" as const, id: block.id ?? "", name: block.name ?? "", input: block.input };
               }
-              if (block.type === "tool_result") {
-                const text = typeof block.content === "string" ? block.content : JSON.stringify(block.content);
-                yield { type: "tool_result" as const, toolUseId: block.tool_use_id ?? "", isError: !!block.is_error, text };
-              }
             }
           }
           if (msg.type === "system" && msg.subtype === "init") {
             if (msg.model) resolvedModel = msg.model;
+            // 尽早记下会话 id：轮次被中断时（拿不到 result）也能继续 resume。
+            if (msg.session_id) events.sessionId = msg.session_id;
             // Surface startup so the session can distinguish "CLI never came
             // up / resume failed" from "first token is just slow".
             yield { type: "init" as const, model: msg.model };
@@ -164,6 +188,9 @@ export function createQuery(
         throw err;
       }
 
+      // 被中断的轮次没有完成，不发 turn_end，免得调用方当成正常结束。
+      if (aborted) return;
+
       yield {
         type: "turn_end" as const,
         durationMs: Date.now() - startTime,
@@ -182,6 +209,16 @@ export function createQuery(
   };
 
   return { events, interrupt };
+}
+
+/** tool_result 的 content 可能是字符串或内容块数组，取出其中的文本。 */
+function toolResultText(content: SDKContentBlock["content"]): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((c) => (c && typeof c === "object" && (c as { type?: string }).type === "text" ? String((c as { text?: unknown }).text ?? "") : ""))
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** Coerce raw AskUserQuestion tool input into validated QuestionSpec[]. */

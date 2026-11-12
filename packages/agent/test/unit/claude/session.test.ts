@@ -47,11 +47,19 @@ function mockLark(): LarkClient {
 }
 
 function mockBroker(): PermissionBroker {
-  return {
+  // forSession 返回同一个作用域对象，便于断言
+  const scope = {
     resetTurn: vi.fn(),
     resetSession: vi.fn(),
     cancelAll: vi.fn(),
+    setRequester: vi.fn(),
     requestPermission: vi.fn().mockResolvedValue(true),
+    askQuestions: vi.fn().mockResolvedValue({}),
+  };
+  return {
+    ...scope,
+    forSession: vi.fn(() => scope),
+    disposeScope: vi.fn(),
   } as unknown as PermissionBroker;
 }
 
@@ -179,6 +187,41 @@ describe("ClaudeSession", () => {
     await session.submit("first");
     await session.stop();
     expect(lark.sendText).toHaveBeenCalledWith("chat-1", "⏹ Stopped");
+  });
+
+  it("refuses the turn when its profile cannot be resolved, without calling the SDK", async () => {
+    session.profile = "fermi"; // mockConfig 无 [profiles]
+    const result = await session.submit("hi");
+    expect(result.kind).toBe("started");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(createQuery).not.toHaveBeenCalled();
+    expect(session.getState()).toBe("idle");
+    expect(lark.sendText).toHaveBeenCalledWith("chat-1", expect.stringContaining("运行档 \"fermi\""));
+  });
+
+  it("starts claude with the profile's env, settings and cli path", async () => {
+    const cfg = {
+      ...mockConfig,
+      profiles: { fermi: { base_url: "http://gw:80", auth_token_env: "CLC_TEST_FERMI_TOKEN", settings: "/s.json", cli_path: "/opt/claude", model: "opus" } },
+    } as AppConfig;
+    process.env["CLC_TEST_FERMI_TOKEN"] = "tok";
+    try {
+      const s2 = new ClaudeSession("chat-1", cfg, lark, broker, logger, "/tmp", "default", "");
+      s2.profile = "fermi";
+      vi.mocked(createQuery).mockReturnValue({
+        events: Object.assign((async function* () {
+          yield { type: "turn_end" as const, durationMs: 1, inputTokens: 1, outputTokens: 1 };
+        })(), { sessionId: "s1" }),
+        interrupt: vi.fn(),
+      });
+      await s2.submit("hi");
+      await new Promise((r) => setTimeout(r, 50));
+      const opts = vi.mocked(createQuery).mock.calls[0]![0];
+      expect(opts).toMatchObject({ cliPath: "/opt/claude", settings: "/s.json", model: "opus" });
+      expect(opts.envOverrides).toMatchObject({ ANTHROPIC_BASE_URL: "http://gw:80", ANTHROPIC_AUTH_TOKEN: "tok" });
+    } finally {
+      delete process.env["CLC_TEST_FERMI_TOKEN"];
+    }
   });
 
   it("posts the final reply as a new message on natural completion", async () => {
@@ -412,6 +455,103 @@ describe("ClaudeSession", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("ClaudeSession interrupt race (B5/B13)", () => {
+  /** 一个在 abort 前一直挂起、abort 后正常结束（模拟 query.ts 吞掉 abort）的事件流。 */
+  function abortable(first: Array<Record<string, unknown>>) {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const events = async function* () {
+      for (const e of first) yield e as never;
+      await gate;
+      // abort 之后旧迭代器可能还会吐出残余事件
+      yield { type: "text" as const, text: "stale tail" };
+    };
+    const interrupt = vi.fn(async () => { release(); });
+    return { handle: { events: Object.assign(events(), { sessionId: undefined as string | undefined }), interrupt }, release };
+  }
+
+  let lark: LarkClient;
+  let session: ClaudeSession;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lark = mockLark();
+    session = new ClaudeSession("chat-1", mockConfig, lark, mockBroker(), logger, "/tmp", "default", "");
+  });
+
+  it("an interrupted turn's cleanup does not clobber the replacement turn", async () => {
+    const first = abortable([{ type: "init", model: "m" }, { type: "text", text: "old partial" }]);
+    let finishSecond: () => void = () => {};
+    const secondGate = new Promise<void>((r) => { finishSecond = r; });
+    const second = async function* () {
+      yield { type: "init" as const, model: "m" };
+      await secondGate;
+      yield { type: "text" as const, text: "new answer" };
+      yield { type: "turn_end" as const, durationMs: 1, inputTokens: 1, outputTokens: 1 };
+    };
+    const onTurnComplete = vi.fn();
+    session.onTurnComplete = onTurnComplete;
+    vi.mocked(createQuery)
+      .mockReturnValueOnce(first.handle)
+      .mockReturnValueOnce({ events: Object.assign(second(), { sessionId: "s2" }), interrupt: vi.fn() });
+
+    await session.submit("one");
+    await new Promise((r) => setTimeout(r, 20));
+    await session.interrupt("two");
+    await new Promise((r) => setTimeout(r, 20));
+
+    // 旧轮次 finally 已经跑过，但新轮次仍在生成，且没有触发 onTurnComplete
+    expect(session.getState()).toBe("generating");
+    expect(onTurnComplete).not.toHaveBeenCalled();
+
+    finishSecond();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(session.getState()).toBe("idle");
+    expect(onTurnComplete).toHaveBeenCalledTimes(1);
+    const texts = vi.mocked(lark.sendText).mock.calls.map((c) => c[1]);
+    expect(texts).toContain("new answer");
+    expect(texts.join("|")).not.toContain("old partial");
+    expect(texts.join("|")).not.toContain("stale tail");
+  });
+
+  it("a user abort on a resumed turn keeps the session id (no resume fallback)", async () => {
+    session.providerSessionId = "keep-me";
+    vi.mocked(createQuery).mockReturnValueOnce({
+      events: Object.assign((async function* () {
+        yield { type: "init" as const, model: "m" };
+        throw new Error("Claude Code process aborted by user");
+      })(), { sessionId: "keep-me" }),
+      interrupt: vi.fn(),
+    });
+    await session.submit("q");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(vi.mocked(createQuery)).toHaveBeenCalledTimes(1);
+    expect(session.providerSessionId).toBe("keep-me");
+  });
+
+  it("tells the user when a failed resume drops history", async () => {
+    session.providerSessionId = "gone";
+    vi.mocked(createQuery)
+      .mockReturnValueOnce({
+        events: Object.assign((async function* () {
+          throw new Error("No conversation found with session ID: gone");
+        })(), { sessionId: undefined }),
+        interrupt: vi.fn(),
+      })
+      .mockReturnValueOnce({
+        events: Object.assign((async function* () {
+          yield { type: "text" as const, text: "ok" };
+          yield { type: "turn_end" as const, durationMs: 1, inputTokens: 1, outputTokens: 1 };
+        })(), { sessionId: "fresh" }),
+        interrupt: vi.fn(),
+      });
+    await session.submit("q");
+    await new Promise((r) => setTimeout(r, 50));
+    const texts = vi.mocked(lark.sendText).mock.calls.map((c) => String(c[1]));
+    expect(texts.some((t) => t.includes("无法恢复之前的会话"))).toBe(true);
+    expect(session.providerSessionId).toBe("fresh");
   });
 });
 

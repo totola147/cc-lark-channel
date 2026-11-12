@@ -51,3 +51,32 @@ describe("CommandRouter.match", () => {
     expect(router.match(mockMsg("  /new"))).toEqual({ command: "/new", args: "" });
   });
 });
+
+describe("CommandRouter /handback after an SDK fork (B6)", () => {
+  it("looks up the wrapper by the bound id and resumes the forked id", async () => {
+    const { vi } = await import("vitest");
+    const ws = { chatId: "chat-1", sessionId: "orig-id", path: "/p", name: "p", description: "", createdAt: "", ownerOpenId: "u" };
+    const workspaceManager = {
+      isWorkspaceChat: () => true,
+      isReleased: () => false,
+      getByChatId: () => ws,
+      release: vi.fn(async (_c: string, sid?: string) => { if (sid) ws.sessionId = sid; return ws; }),
+    };
+    const session = { getState: () => "idle", providerSessionId: "forked-id", interrupt: vi.fn(async () => {}) };
+    const sessionManager = { getSession: () => session };
+    const transport = { sendText: vi.fn(async () => "m") };
+    const pushResume = vi.fn(() => true);
+    const router = new CommandRouter(
+      sessionManager as never,
+      transport as never,
+      {} as never,
+      workspaceManager as never,
+      {} as never,
+      { pushResume, hasWrapper: () => true },
+    );
+    await router.execute({ command: "/handback", args: "" }, mockMsg("/handback"));
+    expect(pushResume).toHaveBeenCalledWith("orig-id", "forked-id");
+    expect(workspaceManager.release).toHaveBeenCalledWith("chat-1", "forked-id");
+    expect(ws.sessionId).toBe("forked-id");
+  });
+});

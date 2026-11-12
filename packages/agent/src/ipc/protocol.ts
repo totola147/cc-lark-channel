@@ -32,6 +32,8 @@ export type IpcRequest =
       permissionMode?: string;
       model?: string;
       effort?: string;
+      /** 运行档名（cc-session --lark-profile），agent 按名查配置，不传凭据。 */
+      profile?: string;
     }
   // wrapper acknowledges it has relaunched claude after a resume push
   | { type: "resumed"; sessionId: string };

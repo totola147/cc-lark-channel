@@ -10,9 +10,13 @@ export interface RelayTransportConfig {
   openId: string;
   /** Stable per-install id; lets multiple agents share one openId. */
   agentId?: string;
+  /** Auth token issued by the relay at pairing time. */
+  token?: string;
   /** Returns chatIds this agent owns, re-claimed on every (re)connect. */
   listOwnedChatIds?: () => string[];
   reconnectIntervalMs?: number;
+  /** 单个请求等待 relay 响应的上限，默认 15 秒。 */
+  requestTimeoutMs?: number;
 }
 
 export class RelayTransport implements Transport {
@@ -90,7 +94,7 @@ export class RelayTransport implements Transport {
 
       this.ws.on("open", () => {
         this.logger.info("Connected to relay");
-        this.send({ type: "auth", openId: this.config.openId, agentId: this.config.agentId });
+        this.send({ type: "auth", openId: this.config.openId, agentId: this.config.agentId, ...(this.config.token ? { token: this.config.token } : {}) });
         // Re-assert chat ownership so the relay rebuilds chat->agent routing
         // (its map is in-memory and lost across restarts/reconnects).
         const chatIds = this.config.listOwnedChatIds?.() ?? [];
@@ -106,6 +110,8 @@ export class RelayTransport implements Transport {
 
       this.ws.on("close", () => {
         this.logger.warn("Relay connection closed");
+        // 已发出的请求不会再收到响应（relay 侧按连接配对），立即失败而不是干等 15 秒。
+        this.failPending("relay connection closed");
         if (!this.closed) this.scheduleReconnect();
       });
 
@@ -174,6 +180,10 @@ export class RelayTransport implements Transport {
   }
 
   private async request(msg: AgentToRelay & { requestId: string }): Promise<RelayResponse> {
+    // 未连接时 send() 会静默丢弃，直接返回失败，避免调用方卡满超时。
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      return { type: "response", requestId: msg.requestId, success: false, error: "relay not connected" };
+    }
     const deferred = createDeferred<RelayResponse>();
     this.pending.set(msg.requestId, deferred);
     this.send(msg);
@@ -181,11 +191,18 @@ export class RelayTransport implements Transport {
     const timeout = setTimeout(() => {
       this.pending.delete(msg.requestId);
       deferred.resolve({ type: "response", requestId: msg.requestId, success: false, error: "timeout" });
-    }, 15000);
+    }, this.config.requestTimeoutMs ?? 15000);
 
     const result = await deferred.promise;
     clearTimeout(timeout);
     return result;
+  }
+
+  private failPending(error: string): void {
+    for (const [requestId, d] of this.pending) {
+      d.resolve({ type: "response", requestId, success: false, error });
+    }
+    this.pending.clear();
   }
 
   private send(msg: AgentToRelay): void {

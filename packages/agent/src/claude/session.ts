@@ -1,6 +1,7 @@
 import type { Logger } from "../util/logger.js";
 import type { Transport } from "../transport/interface.js";
-import type { PermissionBroker } from "./permission-broker.js";
+import type { PermissionBroker, SessionPermissions } from "./permission-broker.js";
+import { resolveProfile, type ResolvedProfile } from "./profile.js";
 import type { AppConfig } from "../config.js";
 import type { RenderEvent, SessionState, PermissionMode, EffortLevel } from "../types.js";
 import { createQuery, type QueryHandle } from "./query.js";
@@ -16,8 +17,12 @@ const STARTUP_TIMEOUT_MS = 30_000;
 interface QueuedInput {
   text: string;
   imageDataUris?: string[];
+  senderOpenId?: string;
   deferred: Deferred<void>;
 }
+
+/** CLI 报告 resume 目标不可用时的错误文本。只有这些才回退到新会话。 */
+const RESUME_FAILURE_PATTERNS = ["No conversation found", "failed to launch"];
 
 export class ClaudeSession {
   private state: SessionState = "idle";
@@ -41,10 +46,21 @@ export class ClaudeSession {
   private totalInputTokens = 0;
   private totalOutputTokens = 0;
   providerSessionId?: string;
+  /** 运行档名（见 claude/profile.ts）；未设置时用 agent 默认环境。 */
+  profile?: string;
 
   readonly id: string;
   name?: string;
   onTurnComplete?: () => void;
+
+  /**
+   * 轮次代号。每次开新轮次或中断时递增；旧轮次在 await 返回后发现代号已变，
+   * 就不再改动会话状态（state/currentHandle/状态卡片/最终回复/出队）。
+   */
+  private generation = 0;
+  /** 本会话独立的审批作用域：本轮/本会话允许、取消都只影响自己。 */
+  private readonly perms: SessionPermissions;
+  private readonly permScopeId = crypto.randomUUID();
 
   constructor(
     private readonly chatId: string,
@@ -58,6 +74,12 @@ export class ClaudeSession {
     public effort?: EffortLevel,
   ) {
     this.id = crypto.randomUUID().slice(0, 8);
+    this.perms = broker.forSession(this.permScopeId);
+  }
+
+  /** 会话被丢弃时释放其审批作用域（挂起的卡片按拒绝处理）。 */
+  dispose(): void {
+    this.broker.disposeScope(this.permScopeId);
   }
 
   getState(): SessionState {
@@ -76,9 +98,13 @@ export class ClaudeSession {
     };
   }
 
-  async submit(text: string, imageDataUris?: string[]): Promise<{ kind: "started" | "queued" | "rejected"; position?: number }> {
+  async submit(
+    text: string,
+    imageDataUris?: string[],
+    senderOpenId?: string,
+  ): Promise<{ kind: "started" | "queued" | "rejected"; position?: number }> {
     if (this.state === "idle") {
-      this.runTurn(text, imageDataUris);
+      this.runTurn(text, imageDataUris, senderOpenId);
       return { kind: "started" };
     }
 
@@ -87,17 +113,23 @@ export class ClaudeSession {
     }
 
     const deferred = createDeferred<void>();
-    this.queue.push({ text, imageDataUris, deferred });
+    this.queue.push({ text, imageDataUris, senderOpenId, deferred });
     const position = this.queue.length;
     return { kind: "queued", position };
   }
 
-  async interrupt(newText?: string): Promise<void> {
-    if (this.currentHandle) {
-      await this.currentHandle.interrupt();
-      this.currentHandle = null;
+  async interrupt(newText?: string, senderOpenId?: string): Promise<void> {
+    // 先让正在跑的轮次失效，它在 abort 之后到达的事件和 finally 都会被忽略。
+    this.generation++;
+    const handle = this.currentHandle;
+    this.currentHandle = null;
+    if (handle) {
+      await handle.interrupt();
+      // init 时已拿到会话 id：保留下来，下一轮 resume 而不是丢掉被中断的上下文。
+      const sid = handle.events.sessionId;
+      if (sid) this.providerSessionId = sid;
     }
-    this.broker.cancelAll();
+    this.perms.cancelAll();
     this.state = "idle";
     this.stopHeartbeat();
     // Drop any buffered partial answer so it isn't posted as a final reply.
@@ -114,7 +146,7 @@ export class ClaudeSession {
     await this.finalizeCard();
 
     if (newText) {
-      this.runTurn(newText);
+      this.runTurn(newText, undefined, senderOpenId);
     }
   }
 
@@ -123,10 +155,13 @@ export class ClaudeSession {
     await this.transport.sendText(this.chatId, "⏹ Stopped");
   }
 
-  private async runTurn(text: string, imageDataUris?: string[]): Promise<void> {
+  private async runTurn(text: string, imageDataUris?: string[], senderOpenId?: string): Promise<void> {
+    const gen = ++this.generation;
+    const isCurrent = () => gen === this.generation;
     this.state = "generating";
     this.turnCount++;
-    this.broker.resetTurn();
+    this.perms.resetTurn();
+    if (senderOpenId) this.perms.setRequester(senderOpenId);
     this.cardState = this.freshCardState();
     this.statusCardId = null;
     this.turnStartMs = Date.now();
@@ -134,25 +169,43 @@ export class ClaudeSession {
     this.finalReplyText = "";
     this.startHeartbeat();
 
+    let resolved: ResolvedProfile | undefined;
+    try {
+      resolved = resolveProfile(this.profile, this.config);
+    } catch (err) {
+      // 档缺失/凭据缺失：不回退到默认网关（会悄悄换上游），直接报错结束本轮。
+      this.logger.error({ err, profile: this.profile }, "Profile resolution failed");
+      this.state = "idle";
+      this.stopHeartbeat();
+      await this.transport.sendText(this.chatId, `❌ ${(err as Error).message}`).catch(() => {});
+      if (isCurrent()) {
+        this.onTurnComplete?.();
+        this.dequeueNext();
+      }
+      return;
+    }
+
     const handle = createQuery(
       {
         prompt: text,
         imageDataUris,
         cwd: this.cwd,
-        model: this.model,
+        model: this.model || resolved?.model || "",
         permissionMode: this.permissionMode,
-        cliPath: this.config.claude.cli_path,
+        cliPath: resolved?.cliPath ?? this.config.claude.cli_path,
+        envOverrides: resolved?.env,
+        settings: resolved?.settings,
         resumeId: this.providerSessionId,
         effort: this.effort,
+        thinkingDisplay: this.config.render.hide_thinking ? undefined : "summarized",
       },
       this.chatId,
-      this.broker,
+      this.perms,
       this.logger,
     );
     this.currentHandle = handle;
 
     let completedNaturally = false;
-    let retrying = false;
     let startupTimedOut = false;
     let failure: string | undefined;
     const wasResume = !!this.providerSessionId;
@@ -183,6 +236,8 @@ export class ClaudeSession {
 
       try {
         for await (const event of handle.events) {
+          // 已被中断：丢弃旧轮次的残余事件，不碰新轮次的状态卡片
+          if (!isCurrent()) break;
           if (!receivedFirstEvent) {
             receivedFirstEvent = true;
             if (startupTimer) clearTimeout(startupTimer);
@@ -201,11 +256,13 @@ export class ClaudeSession {
       // zero events, which used to fall through as a successful turn with an
       // empty reply — the prompt vanished, leaving only a green "✅ Done" card
       // frozen at the last heartbeat tick. Handle it explicitly.
+      if (!isCurrent()) return;
+
       if (startupTimedOut && !receivedFirstEvent) {
         const seconds = Math.round(STARTUP_TIMEOUT_MS / 1000);
         if (wasResume) {
           // Resume specifically may be at fault, so drop it and try once fresh.
-          retrying = true;
+          this.logger.warn({ droppedSessionId: this.providerSessionId }, "Resume startup timed out, dropping session history");
           this.providerSessionId = undefined;
           this.currentHandle = null;
           this.state = "idle";
@@ -213,7 +270,8 @@ export class ClaudeSession {
           await this.transport
             .sendText(this.chatId, `⚠️ Claude 启动超时（${seconds} 秒无响应），正在用新会话重试。原对话历史不会带入。`)
             .catch(() => {});
-          this.runTurn(text, imageDataUris);
+          // runTurn 同步递增 generation，本轮 finally 随之失效
+          if (isCurrent()) this.runTurn(text, imageDataUris, senderOpenId);
           return;
         }
         // Fresh turn: nothing left to fall back to. Report instead of retrying
@@ -230,25 +288,30 @@ export class ClaudeSession {
       if (sessionId) this.providerSessionId = sessionId;
       completedNaturally = true;
     } catch (err) {
+      // 被中断的轮次抛出的错误（通常是 abort）不报给用户，也不触发 resume 回退
+      if (!isCurrent()) return;
       const msg = (err as Error).message ?? "";
-      // Resume failed — retry without session ID
-      if ((msg.includes("No conversation found") || msg.includes("failed to launch") || msg.includes("aborted")) && this.providerSessionId) {
-        this.logger.warn("Resume failed, starting fresh session");
-        retrying = true;
+      // Resume failed — retry without session ID. 只认 CLI 明确的错误文本；
+      // 以前还匹配 "aborted"，用户主动停止时也会误判并丢掉历史。
+      if (wasResume && this.providerSessionId && RESUME_FAILURE_PATTERNS.some((p) => msg.includes(p))) {
+        this.logger.warn({ err, droppedSessionId: this.providerSessionId }, "Resume failed, starting fresh session");
         this.providerSessionId = undefined;
         this.currentHandle = null;
         this.state = "idle";
-        await this.finalizeCard();
-        this.runTurn(text, imageDataUris);
+        await this.finalizeCard("恢复会话失败");
+        await this.transport
+          .sendText(this.chatId, "⚠️ 无法恢复之前的会话，已改用新会话继续。原对话历史不会带入。")
+          .catch(() => {});
+        if (isCurrent()) this.runTurn(text, imageDataUris, senderOpenId);
         return;
       }
       this.logger.error({ err }, "Turn execution error");
       failure = "执行出错";
       await this.transport.sendText(this.chatId, `❌ Error: ${msg}`).catch(() => {});
     } finally {
-      // The resume-retry path re-enters runTurn and owns its own lifecycle;
-      // skip finalization here so we don't double-finalize or post twice.
-      if (!retrying) {
+      // 已被中断或被 resume 重试接管：新轮次自己负责收尾，这里什么都不做，
+      // 否则会重置新轮次的 state/currentHandle、关掉它的卡片、重复出队。
+      if (isCurrent()) {
         this.currentHandle = null;
         this.state = "idle";
         await this.finalizeCard(failure);
@@ -428,7 +491,7 @@ export class ClaudeSession {
   private dequeueNext(): void {
     const next = this.queue.shift();
     if (next) {
-      this.runTurn(next.text, next.imageDataUris).then(
+      this.runTurn(next.text, next.imageDataUris, next.senderOpenId).then(
         () => next.deferred.resolve(),
         (err) => next.deferred.reject(err),
       );

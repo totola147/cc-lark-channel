@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "smol-toml";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import type { PermissionMode } from "./types.js";
 
 const LarkSchema = z.object({
   app_id: z.string().optional().default(""),
@@ -21,8 +22,15 @@ const ClaudeSchema = z.object({
   cli_path: z.string().optional().default("claude"),
   default_model: z.string().optional().default(""),
   default_cwd: z.string().optional().default(process.cwd()),
-  permission_mode: z.enum(["default", "acceptEdits", "bypassPermissions"]).optional().default("acceptEdits"),
+  // "manual" 是 CLI 对 default 的别名，读入时归一化
+  permission_mode: z
+    .enum(["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk", "auto", "manual"])
+    .optional()
+    .default("acceptEdits")
+    .transform((m): PermissionMode => (m === "manual" ? "default" : m)),
   permission_timeout_seconds: z.number().int().positive().optional().default(120),
+  // AskUserQuestion 卡片无人作答多久后放弃（秒）。0 表示一直等待。
+  question_timeout_seconds: z.number().int().nonnegative().optional().default(600),
   max_queue_size: z.number().int().positive().optional().default(5),
   effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
 }).optional().default({
@@ -31,6 +39,7 @@ const ClaudeSchema = z.object({
   default_cwd: process.cwd(),
   permission_mode: "acceptEdits" as const,
   permission_timeout_seconds: 120,
+  question_timeout_seconds: 600,
   max_queue_size: 5,
 });
 
@@ -73,6 +82,16 @@ const LoggingSchema = z.object({
   level: "info" as const,
 });
 
+const ProfileSchema = z.object({
+  base_url: z.string().url().optional(),
+  auth_token_env: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).optional(),
+  api_key_env: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).optional(),
+  settings: z.string().optional(),
+  model: z.string().optional(),
+  cli_path: z.string().optional(),
+  env: z.record(z.string(), z.string()).optional(),
+}).strict();
+
 const ConfigSchema = z.object({
   lark: LarkSchema,
   access: AccessSchema,
@@ -80,6 +99,11 @@ const ConfigSchema = z.object({
   render: RenderSchema,
   persistence: PersistenceSchema,
   logging: LoggingSchema,
+  // 运行档：[profiles.<name>]，供 cc-session --lark-profile <name> 转移的会话使用
+  profiles: z
+    .record(z.string().regex(/^[A-Za-z0-9._-]{1,64}$/, "profile 名只能含字母、数字、. _ -"), ProfileSchema)
+    .optional()
+    .default({}),
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;

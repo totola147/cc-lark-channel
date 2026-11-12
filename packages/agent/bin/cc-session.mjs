@@ -26,6 +26,7 @@ let child = null;          // 当前 claude 子进程
 let intentionalKill = false; // 是否为转移而主动杀
 let currentSessionId = ""; // 已知的会话 id（resume 用）
 let pendingTransfer = null; // 待发起的转移 {sessionId, cwd}，在 claude 退出后发送
+let awaitingTransfer = null; // 已发出 transfer、尚未收到结果的会话 id
 
 // 解析启动参数：把 --resume <id>（或 -r <id> / --resume=<id>）单独提取出来作为初始恢复会话，
 // 其余参数（如 --dangerously-skip-permissions、--model 等）全部原样透传给 claude。
@@ -33,9 +34,12 @@ let pendingTransfer = null; // 待发起的转移 {sessionId, cwd}，在 claude 
 // 让飞书侧会话延续同样的权限模式和模型，而不是回落到 agent 配置默认值。
 let initialResumeId;
 let extraArgs = [];
-let transferPermissionMode; // "bypassPermissions" | "acceptEdits" | "default" | undefined
+let transferPermissionMode; // CLI 的 --permission-mode 取值（agent 侧归一化），或 "bypassPermissions"
 let transferModel;
 let transferEffort; // "low" | "medium" | "high" | "xhigh" | "max" | undefined
+// 飞书侧运行档名（agent config.toml 的 [profiles.<name>]）。只传名字，不传地址/凭据。
+// --lark-profile 是包装器自己的参数，不透传给 claude；CC_LARK_PROFILE 作为默认值。
+let transferProfile = process.env.CC_LARK_PROFILE || undefined;
 {
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
@@ -45,8 +49,16 @@ let transferEffort; // "low" | "medium" | "high" | "xhigh" | "max" | undefined
       else { extraArgs.push(a); } // 裸 --resume（交互式选择会话）：原样透传给 claude
     } else if (a.startsWith("--resume=")) {
       initialResumeId = a.slice("--resume=".length);
-    } else if (a === "--dangerously-skip-permissions" || a === "--allow-dangerously-skip-permissions") {
+    } else if (a === "--lark-profile") {
+      if (argv[i + 1] && !argv[i + 1].startsWith("-")) transferProfile = argv[++i];
+      else { process.stderr.write("[cc-session] --lark-profile 需要一个档名\n"); process.exit(2); }
+    } else if (a.startsWith("--lark-profile=")) {
+      transferProfile = a.slice("--lark-profile=".length) || undefined;
+    } else if (a === "--dangerously-skip-permissions") {
       transferPermissionMode = "bypassPermissions";
+      extraArgs.push(a);
+    } else if (a === "--allow-dangerously-skip-permissions") {
+      // 只是"允许在会话中切换到 bypass"，本身不启用 bypass，不能据此放宽飞书侧权限。
       extraArgs.push(a);
     } else if (a === "--permission-mode") {
       if (argv[i + 1]) transferPermissionMode = argv[i + 1];
@@ -219,11 +231,20 @@ function handleControlMessage(msg) {
     spawnClaude(msg.sessionId);
     try { ctrl?.write(JSON.stringify({ type: "resumed", sessionId: msg.sessionId }) + "\n"); } catch {}
   } else if (msg.type === "ok" && msg.chatId) {
+    awaitingTransfer = null;
     // transfer 成功响应（带群名）；register 的 ok 无 chatId，忽略。
     const name = msg.groupName ? `「${msg.groupName}」` : "";
     log(`已转移至飞书群${name}，等待该群 /handback 交还...（若群已关闭/不再交还，按 Ctrl+C 退出）`);
   } else if (msg.type === "error") {
     log(`agent 报错：${msg.message}`);
+    // 转移被拒（如运行档未配置）：claude 已退出，原地恢复会话，避免卡在等待态。
+    if (awaitingTransfer && !child) {
+      const sid = awaitingTransfer;
+      awaitingTransfer = null;
+      log("转移失败，回到终端继续会话");
+      currentSessionId = sid;
+      spawnClaude(sid);
+    }
   }
 }
 
@@ -240,8 +261,10 @@ function doTransferAndWait(sessionId, cwd) {
       permissionMode: transferPermissionMode,
       model: transferModel,
       effort: transferEffort,
+      ...(transferProfile ? { profile: transferProfile } : {}),
     }) + "\n");
-    log(`正在请求转移会话 ${sessionId} 至飞书...`);
+    awaitingTransfer = sessionId;
+    log(`正在请求转移会话 ${sessionId} 至飞书...${transferProfile ? `（运行档：${transferProfile}）` : ""}`);
   };
   if (c.connecting) c.once("connect", send); else send();
 }

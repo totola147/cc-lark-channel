@@ -13,6 +13,8 @@ export interface SessionRecord {
   permissionMode: PermissionMode;
   model: string;
   effort?: EffortLevel;
+  /** 运行档名（只存名字，不存地址/凭据）。 */
+  profile?: string;
 }
 
 export interface ChatRecord {
@@ -39,10 +41,13 @@ export interface WorkspaceRecord {
   released?: boolean;
 }
 
-const INITIAL_STATE: StateData = { version: 2, chats: {} };
+/** 每次返回新对象：共享同一个常量会让多个 StateStore（以及 v1 迁移后的状态）互相污染。 */
+function initialState(): StateData {
+  return { version: 2, chats: {} };
+}
 
 export class StateStore {
-  private state: StateData = INITIAL_STATE;
+  private state: StateData = initialState();
   private readonly filePath: string;
 
   constructor(
@@ -61,12 +66,12 @@ export class StateStore {
         this.state = data as StateData;
       } else {
         // Migrate v1 format
-        this.state = INITIAL_STATE;
+        this.state = initialState();
       }
       this.logger.info({ chats: Object.keys(this.state.chats).length }, "State loaded");
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        this.state = INITIAL_STATE;
+        this.state = initialState();
         this.logger.info("No existing state file, starting fresh");
       } else {
         throw err;
@@ -110,9 +115,6 @@ export class StateStore {
     this.state.chats[chatId]!.sessions[record.id] = record;
   }
 
-  deleteSession(chatId: string): void {
-    delete this.state.chats[chatId];
-  }
 
   getAllChats(): Record<string, ChatRecord> {
     return { ...this.state.chats };

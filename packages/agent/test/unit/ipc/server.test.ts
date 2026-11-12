@@ -107,6 +107,15 @@ describe("IpcServer", () => {
     c.close();
   });
 
+  it("forwards the profile name", async () => {
+    const c = client(sockPath);
+    c.send({ type: "transfer", sessionId: "s7", cwd: "/proj", hasWrapper: true, profile: "fermi" });
+    const resp = await c.next();
+    expect(resp.type).toBe("ok");
+    expect(transfers.at(-1)).toMatchObject({ sessionId: "s7", profile: "fermi" });
+    c.close();
+  });
+
   it("forwards effort from the terminal's launch flags", async () => {
     const c = client(sockPath);
     c.send({

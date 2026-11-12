@@ -12,9 +12,69 @@ export interface LarkBotConfig {
   appSecret: string;
 }
 
+/** 记住最近处理过的 message_id。飞书 WS 在未及时 ack 时会重投同一事件。 */
+export class RecentIds {
+  private readonly seen = new Set<string>();
+  constructor(private readonly max = 2000) {}
+  /** 首次出现返回 false 并记录；重复返回 true。 */
+  seenBefore(id: string): boolean {
+    if (this.seen.has(id)) return true;
+    if (this.seen.size >= this.max) {
+      const oldest = this.seen.values().next().value;
+      if (oldest !== undefined) this.seen.delete(oldest);
+    }
+    this.seen.add(id);
+    return false;
+  }
+}
+
+/** 解析飞书消息内容：text / image / post（富文本，含文字和图片）。 */
+export function parseMessageContent(msgType: string, content: string): { text: string; imageKeys: string[] } {
+  try {
+    const parsed = JSON.parse(content) as Record<string, unknown>;
+    if (msgType === "text") return { text: String(parsed["text"] ?? "").trim(), imageKeys: [] };
+    if (msgType === "image") {
+      const key = parsed["image_key"];
+      return { text: "", imageKeys: typeof key === "string" && key ? [key] : [] };
+    }
+    if (msgType === "post") return parsePost(parsed);
+    return { text: content, imageKeys: [] };
+  } catch {
+    return { text: content, imageKeys: [] };
+  }
+}
+
+function parsePost(parsed: Record<string, unknown>): { text: string; imageKeys: string[] } {
+  // 接收事件里 post 通常直接是 {title, content}；个别情况下按语言包一层 {zh_cn: {...}}。
+  let body: Record<string, unknown> = parsed;
+  if (!Array.isArray(body["content"])) {
+    const inner = Object.values(parsed).find(
+      (v): v is Record<string, unknown> => !!v && typeof v === "object" && Array.isArray((v as Record<string, unknown>)["content"]),
+    );
+    if (inner) body = inner;
+  }
+  const lines = Array.isArray(body["content"]) ? (body["content"] as unknown[]) : [];
+  const textLines: string[] = [];
+  const imageKeys: string[] = [];
+  for (const line of lines) {
+    if (!Array.isArray(line)) continue;
+    let text = "";
+    for (const node of line as Array<Record<string, unknown>>) {
+      if (!node || typeof node !== "object") continue;
+      if ((node["tag"] === "text" || node["tag"] === "a") && typeof node["text"] === "string") text += node["text"];
+      if (node["tag"] === "code_block" && typeof node["text"] === "string") text += node["text"];
+      if (node["tag"] === "img" && typeof node["image_key"] === "string") imageKeys.push(node["image_key"]);
+    }
+    textLines.push(text);
+  }
+  const title = typeof body["title"] === "string" && body["title"] ? `${body["title"]}\n` : "";
+  return { text: (title + textLines.join("\n")).trim(), imageKeys };
+}
+
 export class LarkBot {
   private readonly sdk: LarkSDKClient;
   private readonly wsClient: WSClient;
+  private readonly recentMessages = new RecentIds();
 
   constructor(
     private readonly config: LarkBotConfig,
@@ -115,6 +175,11 @@ export class LarkBot {
     const { message } = event;
     const chatId = message.chat_id;
 
+    if (message.message_id && this.recentMessages.seenBefore(message.message_id)) {
+      this.logger.debug({ messageId: message.message_id }, "Duplicate message event, ignoring");
+      return;
+    }
+
     // Resolve the route FIRST, then use it as the liveness gate. Gating on
     // `isUserOnline` (the per-user fallback pointer) rejected messages in
     // chats whose owning agent was online but was not the user's most-recent
@@ -129,12 +194,12 @@ export class LarkBot {
 
     if (!route) {
       await this.sendText(chatId,
-        `⚠️ Agent 未连接\n\n你的 open_id:\n${senderOpenId}\n\n请在本地启动:\nnode dist/index.cjs --relay ws://<relay-ip>:9000 --open-id ${senderOpenId}`
+        `⚠️ Agent 未连接\n\n请在本地启动并完成设备码配对:\nclc --relay ws://<relay-ip>:9000`
       );
       return;
     }
 
-    const parsed = this.parseContent(message.message_type, message.content);
+    const parsed = parseMessageContent(message.message_type, message.content);
 
     this.tunnels.send(route.tunnel.agentId, {
       type: "message",
@@ -183,16 +248,6 @@ export class LarkBot {
     return {};
   }
 
-  private parseContent(msgType: string, content: string): { text: string; imageKeys: string[] } {
-    try {
-      const parsed = JSON.parse(content);
-      if (msgType === "text") return { text: (parsed.text as string ?? "").trim(), imageKeys: [] };
-      if (msgType === "image") return { text: "", imageKeys: [parsed.image_key as string] };
-      return { text: content, imageKeys: [] };
-    } catch {
-      return { text: content, imageKeys: [] };
-    }
-  }
 }
 
 interface ReceiveV1Event {

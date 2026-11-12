@@ -7,7 +7,20 @@ export interface IncomingMessage {
   parentMessageId?: string;
 }
 
-export type PermissionMode = "default" | "acceptEdits" | "bypassPermissions";
+/** 与 Claude Agent SDK 的 PermissionMode 一致。 */
+export type PermissionMode = "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk" | "auto";
+
+export const PERMISSION_MODES: readonly PermissionMode[] = ["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk", "auto"];
+
+/**
+ * 规范化来自终端/配置/命令的权限模式。CLI 还接受 "manual"（等价于 default）。
+ * 不认识的值返回 undefined，由调用方决定忽略还是报错。
+ */
+export function normalizePermissionMode(raw: string | undefined | null): PermissionMode | undefined {
+  if (!raw) return undefined;
+  if (raw === "manual") return "default";
+  return (PERMISSION_MODES as readonly string[]).includes(raw) ? (raw as PermissionMode) : undefined;
+}
 
 /** Reasoning effort level, mirrored from the Claude Agent SDK's EffortLevel. */
 export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max";

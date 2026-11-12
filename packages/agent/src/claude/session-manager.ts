@@ -2,9 +2,10 @@ import type { Logger } from "../util/logger.js";
 import type { Transport } from "../transport/interface.js";
 import type { PermissionBroker } from "./permission-broker.js";
 import type { AppConfig } from "../config.js";
-import type { IncomingMessage, PermissionMode, EffortLevel } from "../types.js";
-import type { StateStore } from "../persistence/store.js";
+import type { IncomingMessage, PermissionMode } from "../types.js";
+import type { StateStore, SessionRecord } from "../persistence/store.js";
 import { ClaudeSession } from "./session.js";
+import { detectImageMime } from "../util/image-mime.js";
 
 interface ChatState {
   foregroundId: string;
@@ -44,6 +45,7 @@ export class SessionManager {
         (session as unknown as { id: string }).id = rec.id;
         session.providerSessionId = rec.providerSessionId;
         if (rec.name) session.name = rec.name;
+        if (rec.profile) session.profile = rec.profile;
         this.attachTurnCallback(chatId, session);
         chat.sessions.set(session.id, session);
       }
@@ -80,14 +82,14 @@ export class SessionManager {
 
     if (msg.text.startsWith("!")) {
       const newText = msg.text.slice(1).trim();
-      await session.interrupt(newText || undefined);
+      await session.interrupt(newText || undefined, msg.senderOpenId);
       return;
     }
 
     // If an AskUserQuestion card in this chat is waiting for a free-text
     // answer (user tapped "Other"), this message IS that answer — consume it
     // and do not forward it to Claude as a new prompt.
-    if (await this.broker.consumePendingText(msg.chatId, msg.text)) {
+    if (await this.broker.consumePendingText(msg.chatId, msg.text, msg.senderOpenId)) {
       return;
     }
 
@@ -97,8 +99,12 @@ export class SessionManager {
       for (const key of msg.imageKeys) {
         try {
           const buf = await this.transport.downloadImage(msg.messageId, key);
-          const base64 = buf.toString("base64");
-          imageDataUris.push(`data:image/png;base64,${base64}`);
+          const mime = detectImageMime(buf);
+          if (!mime) {
+            this.logger.warn({ imageKey: key }, "Unsupported image format, skipping");
+            continue;
+          }
+          imageDataUris.push(`data:${mime};base64,${buf.toString("base64")}`);
         } catch (err) {
           this.logger.warn({ err, imageKey: key }, "Failed to download image");
         }
@@ -108,7 +114,7 @@ export class SessionManager {
     const prompt = msg.text || (imageDataUris?.length ? "Please analyze this image." : "");
     if (!prompt && !imageDataUris?.length) return;
 
-    const result = await session.submit(prompt, imageDataUris);
+    const result = await session.submit(prompt, imageDataUris, msg.senderOpenId);
 
     if (result.kind === "queued") {
       await this.transport.sendText(msg.chatId, `📋 Queued (position ${result.position})`);
@@ -119,13 +125,18 @@ export class SessionManager {
     this.persistChat(msg.chatId);
   }
 
-  newSession(chatId: string): ClaudeSession {
+  /**
+   * 用一个全新会话替换前台会话。后台会话保持不变并持久化——以前这里调用
+   * stateStore.deleteSession(chatId)（已移除）会删掉整个 chat 记录，重启后后台会话全丢。
+   */
+  async newSession(chatId: string): Promise<ClaudeSession> {
     const chat = this.chats.get(chatId);
-    if (chat) {
-      const fg = chat.sessions.get(chat.foregroundId);
-      if (fg) fg.interrupt();
+    const old = chat?.sessions.get(chat.foregroundId);
+    if (old) {
+      await old.interrupt();
+      old.dispose();
+      chat!.sessions.delete(old.id);
     }
-    this.broker.resetSession();
 
     const session = this.createFreshSession(chatId);
     if (chat) {
@@ -134,7 +145,7 @@ export class SessionManager {
     } else {
       this.chats.set(chatId, { foregroundId: session.id, sessions: new Map([[session.id, session]]) });
     }
-    this.stateStore.deleteSession(chatId);
+    this.persistChat(chatId);
     return session;
   }
 
@@ -167,7 +178,7 @@ export class SessionManager {
     return target;
   }
 
-  killSession(chatId: string, sessionId: string): boolean {
+  async killSession(chatId: string, sessionId: string): Promise<boolean> {
     const chat = this.chats.get(chatId);
     if (!chat) return false;
 
@@ -175,21 +186,23 @@ export class SessionManager {
     if (!target) return false;
     if (target.id === chat.foregroundId) return false;
 
-    target.interrupt();
     chat.sessions.delete(target.id);
+    await target.interrupt();
+    target.dispose();
     this.persistChat(chatId);
     return true;
   }
 
-  killAll(chatId: string): number {
+  async killAll(chatId: string): Promise<number> {
     const chat = this.chats.get(chatId);
     if (!chat) return 0;
-    let count = 0;
-    for (const [id, session] of chat.sessions) {
-      session.interrupt();
-      count++;
-    }
+    const victims = [...chat.sessions.values()];
     chat.sessions.clear();
+    await Promise.all(victims.map(async (session) => {
+      await session.interrupt();
+      session.dispose();
+    }));
+    const count = victims.length;
     const fresh = this.createFreshSession(chatId);
     chat.sessions.set(fresh.id, fresh);
     chat.foregroundId = fresh.id;
@@ -242,6 +255,7 @@ export class SessionManager {
     if (saved?.providerSessionId) {
       session.providerSessionId = saved.providerSessionId;
     }
+    if (saved?.profile) session.profile = saved.profile;
     this.attachTurnCallback(chatId, session);
     return session;
   }
@@ -275,18 +289,22 @@ export class SessionManager {
   private persistChat(chatId: string): void {
     const chat = this.chats.get(chatId);
     if (!chat) return;
-    const sessions: Record<string, { id: string; providerSessionId?: string; name?: string; cwd: string; createdAt: string; lastActiveAt: string; permissionMode: PermissionMode; model: string; effort?: EffortLevel }> = {};
+    const prev = this.stateStore.getChat(chatId)?.sessions ?? {};
+    const now = new Date().toISOString();
+    const sessions: Record<string, SessionRecord> = {};
     for (const [id, s] of chat.sessions) {
       sessions[id] = {
         id: s.id,
         providerSessionId: s.providerSessionId,
         name: s.name,
         cwd: s.cwd,
-        createdAt: new Date().toISOString(),
-        lastActiveAt: new Date().toISOString(),
+        // 保留首次创建时间；以前每次持久化都被覆盖成当前时间
+        createdAt: prev[id]?.createdAt ?? now,
+        lastActiveAt: now,
         permissionMode: s.permissionMode,
         model: s.model,
         effort: s.effort,
+        ...(s.profile ? { profile: s.profile } : {}),
       };
     }
     this.stateStore.setChat(chatId, { foregroundId: chat.foregroundId, sessions });

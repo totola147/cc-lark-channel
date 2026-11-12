@@ -1,15 +1,9 @@
-import { readFileSync, existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { findSessionFile } from "./project-dir.js";
 
 interface Turn {
   role: "user" | "assistant";
   text: string;
-}
-
-/** 把 cwd 编码成 Claude 的 projects 目录名（/ → -）。 */
-function encodeProjectDir(cwd: string): string {
-  return cwd.replace(/\//g, "-");
 }
 
 function extractText(content: unknown): string {
@@ -46,9 +40,8 @@ export function buildRecap(
   maxRounds = 3,
   maxCharsPerTurn = 400,
 ): string | null {
-  const dir = join(homedir(), ".claude", "projects", encodeProjectDir(cwd));
-  const file = join(dir, `${sessionId}.jsonl`);
-  if (!existsSync(file)) return null;
+  const file = findSessionFile(cwd, sessionId);
+  if (!file) return null;
 
   let lines: string[];
   try {

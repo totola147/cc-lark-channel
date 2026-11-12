@@ -46,7 +46,7 @@ describe("StateStore", () => {
     expect(session!.model).toBe("claude-sonnet-4-6");
   });
 
-  it("deletes sessions", async () => {
+  it("deletes chats", async () => {
     await store.load();
     store.setSession("chat-1", {
       cwd: "/tmp",
@@ -55,7 +55,7 @@ describe("StateStore", () => {
       permissionMode: "default",
       model: "",
     });
-    store.deleteSession("chat-1");
+    store.deleteChat("chat-1");
     expect(store.getSession("chat-1")).toBeUndefined();
   });
 
@@ -80,5 +80,27 @@ describe("StateStore", () => {
     // Mutating the copy should not affect the store
     delete all["chat-1"];
     expect(store.getSession("chat-1")).toBeDefined();
+  });
+});
+
+describe("StateStore initial state isolation (B15)", () => {
+  it("does not share state between fresh stores", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const log = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, child: () => log } as never;
+    const a = mkdtempSync(join(tmpdir(), "st-a-"));
+    const b = mkdtempSync(join(tmpdir(), "st-b-"));
+    try {
+      const s1 = new StateStore(a, log);
+      const s2 = new StateStore(b, log);
+      await s1.load();
+      await s2.load();
+      s1.setWorkspace("oc_1", { chatId: "oc_1", path: "/p", name: "p", description: "", createdAt: "", ownerOpenId: "ou" });
+      expect(s2.getWorkspace("oc_1")).toBeUndefined();
+    } finally {
+      rmSync(a, { recursive: true, force: true });
+      rmSync(b, { recursive: true, force: true });
+    }
   });
 });

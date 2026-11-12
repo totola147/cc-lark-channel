@@ -24,7 +24,9 @@ export type AgentToRelay =
   // agentId: stable per-install id so multiple agents can share one openId
   // without evicting each other. Optional for backward compat (falls back to
   // openId on the relay).
-  | { type: "auth"; openId: string; agentId?: string }
+  // token: issued by the relay at pairing time (device-code flow). Required by
+  // the relay unless it runs with RELAY_ALLOW_LEGACY_AUTH=1.
+  | { type: "auth"; openId: string; agentId?: string; token?: string }
   | { type: "pong" }
   // Re-assert ownership of workspace chats after (re)connect; the relay keeps
   // chat->agent routing in memory and loses it on restart.

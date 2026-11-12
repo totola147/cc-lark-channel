@@ -14,6 +14,8 @@ export interface TransferRequest {
   model?: string;
   /** Terminal's launch-time reasoning effort (from --effort), if set. */
   effort?: string;
+  /** 运行档名（cc-session --lark-profile）。 */
+  profile?: string;
 }
 
 export interface IpcHandlers {
@@ -110,6 +112,7 @@ export class IpcServer {
           permissionMode: msg.permissionMode,
           model: msg.model,
           effort: msg.effort,
+          profile: msg.profile,
         });
         this.send(socket, { type: "ok", message: result.message, chatId: result.chatId, groupName: result.groupName });
         return;

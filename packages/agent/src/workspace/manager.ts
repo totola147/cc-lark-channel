@@ -1,20 +1,11 @@
 import type { Logger } from "../util/logger.js";
 import type { Transport } from "../transport/interface.js";
-import type { StateStore } from "../persistence/store.js";
+import type { StateStore, WorkspaceRecord } from "../persistence/store.js";
 import { getProjectInfo } from "./project-info.js";
-import { existsSync, readdirSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { readdirSync, statSync } from "node:fs";
+import { resolveProjectDir } from "../claude/project-dir.js";
 
-export interface WorkspaceRecord {
-  chatId: string;
-  path: string;
-  name: string;
-  description: string;
-  createdAt: string;
-  ownerOpenId: string;
-  sessionId?: string;
-  released?: boolean;
-}
+export type { WorkspaceRecord };
 
 const MAX_WORKSPACES = 20;
 
@@ -135,11 +126,16 @@ export class WorkspaceManager {
     return { record, created: true };
   }
 
-  /** Mark a group as released (handed back to the terminal). */
-  async release(chatId: string): Promise<WorkspaceRecord | undefined> {
+  /**
+   * Mark a group as released (handed back to the terminal). `sessionId` is the
+   * session the terminal will resume (may differ from the bound one after an
+   * SDK fork); the binding follows it so a later re-transfer reuses this group.
+   */
+  async release(chatId: string, sessionId?: string): Promise<WorkspaceRecord | undefined> {
     const record = this.stateStore.getWorkspace(chatId);
     if (!record) return undefined;
     record.released = true;
+    if (sessionId) record.sessionId = sessionId;
     this.stateStore.setWorkspace(chatId, record);
     await this.stateStore.save();
     this.logger.info({ chatId, sessionId: record.sessionId }, "Workspace released to terminal");
@@ -159,10 +155,8 @@ export class WorkspaceManager {
   }
 
   getLatestSessionId(path: string): string | undefined {
-    const projectsDir = `${homedir()}/.claude/projects`;
-    const encoded = path.replace(/\//g, "-");
-    const dir = `${projectsDir}/${encoded}`;
-    if (!existsSync(dir)) return undefined;
+    const dir = resolveProjectDir(path);
+    if (!dir) return undefined;
 
     try {
       const files = readdirSync(dir).filter(f => f.endsWith(".jsonl"));

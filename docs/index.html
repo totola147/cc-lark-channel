@@ -174,7 +174,7 @@ node dist/index.cjs</code></pre>
   const RELAY_BASE = window.location.origin;
   const RELAY_HOST = window.location.host;
   const RELAY_WS = `ws://${RELAY_HOST}`;
-  let authenticatedOpenId = null;
+  let authenticated = false;
 
   // Replace placeholders with actual relay address
   document.querySelectorAll('code').forEach(el => {
@@ -187,19 +187,27 @@ node dist/index.cjs</code></pre>
     document.getElementById('panel-custom').classList.toggle('active', mode === 'custom');
   }
 
-  // Check if returning from OAuth
-  (function checkAuth() {
-    const hash = window.location.hash;
-    if (hash.includes("authenticated")) {
-      const params = new URLSearchParams(hash.replace("#authenticated&", ""));
-      authenticatedOpenId = params.get("open_id");
-      if (authenticatedOpenId) {
+  // Check whether this browser completed OAuth. The relay keeps the identity
+  // in a server-side session (HttpOnly cookie); open_id is never put in the URL.
+  async function checkAuth() {
+    try {
+      const res = await fetch(`${RELAY_BASE}/api/oauth/status`, { credentials: "same-origin" });
+      const data = await res.json();
+      if (data.authenticated) {
+        authenticated = true;
         document.getElementById("auth-btn").textContent = "✅ 已认证";
         document.getElementById("auth-btn").style.pointerEvents = "none";
         document.getElementById("auth-status").className = "status status-success";
-        document.getElementById("auth-status").textContent = "认证成功: " + authenticatedOpenId;
+        document.getElementById("auth-status").textContent = "认证成功: " + (data.openIdHint || "");
         document.getElementById("auth-status").classList.remove("hidden");
         document.getElementById("bind-btn").disabled = false;
+      }
+    } catch {}
+    if (window.location.hash.includes("authenticated")) window.location.hash = "";
+  }
+  checkAuth();
+
+  document.getElementById("bind-btn").disabled = false;
         window.location.hash = "";
       }
     }
@@ -208,12 +216,13 @@ node dist/index.cjs</code></pre>
   document.getElementById("bind-btn").addEventListener("click", async () => {
     const code = document.getElementById("device-code-input").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (!code || code.length < 6) { showStatus("bind-status", "请输入 6 位设备码", "warn"); return; }
-    if (!authenticatedOpenId) { showStatus("bind-status", "请先完成飞书认证", "warn"); return; }
+    if (!authenticated) { showStatus("bind-status", "请先完成飞书认证", "warn"); return; }
     try {
       const res = await fetch(`${RELAY_BASE}/api/bind`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deviceCode: code, openId: authenticatedOpenId }),
+        credentials: "same-origin",
+        body: JSON.stringify({ deviceCode: code }),
       });
       const data = await res.json();
       if (data.success) {

@@ -1,8 +1,10 @@
 import type { Transport } from "../transport/interface.js";
 import type { SessionManager } from "../claude/session-manager.js";
 import type { WorkspaceManager } from "../workspace/manager.js";
+import { locateSession } from "../claude/project-dir.js";
 import type { AppConfig } from "../config.js";
-import type { IncomingMessage, PermissionMode, EffortLevel } from "../types.js";
+import type { IncomingMessage, EffortLevel } from "../types.js";
+import { normalizePermissionMode, PERMISSION_MODES } from "../types.js";
 import type { Logger } from "../util/logger.js";
 import { getLiveSessionOwner } from "../claude/session-registry.js";
 
@@ -66,7 +68,7 @@ export class CommandRouter {
         break;
 
       case "/new":
-        this.sessionManager.newSession(chatId);
+        await this.sessionManager.newSession(chatId);
         await this.transport.sendText(chatId, "🆕 New session started");
         break;
 
@@ -94,6 +96,7 @@ export class CommandRouter {
           `Model: ${session.model || "(default)"}`,
           `Permission: ${session.permissionMode}`,
           `Effort: ${session.effort || "(default)"}`,
+          `Profile: ${session.profile || "(agent default)"}`,
           `Turns: ${stats.turnCount}`,
           `Tokens: ${stats.totalInputTokens} in / ${stats.totalOutputTokens} out`,
           `Queue: ${session.getQueueLength()}`,
@@ -150,11 +153,11 @@ export class CommandRouter {
           break;
         }
         if (cmd.args.toLowerCase() === "all") {
-          const count = this.sessionManager.killAll(chatId);
+          const count = await this.sessionManager.killAll(chatId);
           await this.transport.sendText(chatId, `🗑 Killed ${count} session(s), new foreground session created`);
           break;
         }
-        const killed = this.sessionManager.killSession(chatId, cmd.args);
+        const killed = await this.sessionManager.killSession(chatId, cmd.args);
         if (killed) {
           await this.transport.sendText(chatId, `🗑 Session "${cmd.args}" killed`);
         } else {
@@ -164,14 +167,14 @@ export class CommandRouter {
       }
 
       case "/mode": {
-        const validModes: PermissionMode[] = ["default", "acceptEdits", "bypassPermissions"];
-        if (!cmd.args || !validModes.includes(cmd.args as PermissionMode)) {
-          await this.transport.sendText(chatId, `Usage: /mode <${validModes.join("|")}>`);
+        const mode = normalizePermissionMode(cmd.args.trim());
+        if (!mode) {
+          await this.transport.sendText(chatId, `Usage: /mode <${PERMISSION_MODES.join("|")}>`);
           break;
         }
         const session = this.sessionManager.getOrCreateSession(chatId);
-        session.permissionMode = cmd.args as PermissionMode;
-        await this.transport.sendText(chatId, `Permission mode: ${cmd.args}`);
+        session.permissionMode = mode;
+        await this.transport.sendText(chatId, `Permission mode: ${mode}`);
         break;
       }
 
@@ -221,19 +224,10 @@ export class CommandRouter {
         const sessionId = parts[0]!;
         let attachCwd = parts[1]?.replace(/^["']|["']$/g, "");
 
-        // Auto-detect cwd from Claude's session storage if not provided
+        // Auto-detect cwd from Claude's session storage if not provided.
+        // 目录名编码有损（路径里的 - 会被误还原成 /），所以从 jsonl 记录读真实 cwd。
         if (!attachCwd) {
-          const { readdirSync, existsSync } = await import("node:fs");
-          const { homedir } = await import("node:os");
-          const projectsDir = `${homedir()}/.claude/projects`;
-          if (existsSync(projectsDir)) {
-            for (const dir of readdirSync(projectsDir)) {
-              if (existsSync(`${projectsDir}/${dir}/${sessionId}.jsonl`)) {
-                attachCwd = dir.replace(/^-/, "/").replace(/-/g, "/");
-                break;
-              }
-            }
-          }
+          attachCwd = locateSession(sessionId)?.cwd;
         }
 
         // Background current session if it has work
@@ -344,10 +338,14 @@ export class CommandRouter {
         const sessionId = session?.providerSessionId || ws.sessionId;
 
         // Stop the agent owning the session and mark the group released.
+        // 同时把群绑定的 sessionId 更新为 fork 后的 id：终端下次从这个 id 转移
+        // 回来时才能复用原群，而不是再建一个新群。
         if (session) await session.interrupt();
-        await this.workspaceManager.release(chatId);
+        const wrapperId = ws.sessionId;
+        await this.workspaceManager.release(chatId, sessionId);
 
-        const delivered = this.handback?.pushResume(sessionId) ?? false;
+        // wrapper 是用转移时的 id 注册的；fork 后的新 id 只作为要 resume 的目标。
+        const delivered = this.handback?.pushResume(wrapperId, sessionId) ?? false;
         if (delivered) {
           await this.transport.sendText(
             chatId,
@@ -369,18 +367,22 @@ export class CommandRouter {
 
       case "/update": {
         try {
-          const { execSync } = await import("node:child_process");
+          const { execFileSync } = await import("node:child_process");
           const { writeFileSync } = await import("node:fs");
           const { join } = await import("node:path");
           const cwd = process.cwd();
-          execSync(`git config --global --add safe.directory ${cwd}`, { encoding: "utf-8", timeout: 5000 });
-          const pullResult = execSync("git pull", { cwd, encoding: "utf-8", timeout: 30000 });
+          // 用 -c 临时信任仓库目录：不经 shell 拼接路径，也不往全局 gitconfig 里反复追加。
+          const pullResult = execFileSync("git", ["-c", `safe.directory=${cwd}`, "pull", "--ff-only"], {
+            cwd,
+            encoding: "utf-8",
+            timeout: 30000,
+          });
           if (pullResult.includes("Already up to date")) {
             await this.transport.sendText(chatId, "✅ Already up to date");
             break;
           }
           await this.transport.sendText(chatId, "🔄 New version found, building...");
-          execSync("pnpm build", { cwd, encoding: "utf-8", timeout: 60000 });
+          execFileSync("pnpm", ["build"], { cwd, encoding: "utf-8", timeout: 60000 });
           await this.transport.sendText(chatId, "🔄 Restarting...");
           const stateDir = join(cwd, ".state");
           try { writeFileSync(join(stateDir, "update-restart.json"), JSON.stringify({ chatId })); } catch {}
