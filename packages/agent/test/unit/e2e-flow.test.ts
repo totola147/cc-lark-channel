@@ -87,6 +87,32 @@ describe("E2E: Full message flow", () => {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   });
 
+  it("applies claude.default_profile to new sessions; a saved choice survives restart", async () => {
+    const cfg = {
+      ...mockConfig,
+      claude: { ...mockConfig.claude, default_profile: "fermi" },
+      profiles: { fermi: {}, other: {} },
+    } as AppConfig;
+    const m = new SessionManager(cfg, stateStore, broker, lark, logger);
+    expect(m.getOrCreateSession("c-new").profile).toBe("fermi");
+    expect((await m.newSession("c-new")).profile).toBe("fermi");
+
+    m.getOrCreateSession("c-new").profile = undefined; // /profile default
+    m.persist("c-new");
+    await stateStore.save();
+    const store2 = new StateStore(tmpDir, logger);
+    await store2.load();
+    const m2 = new SessionManager(cfg, store2, broker, lark, logger);
+    expect(m2.getOrCreateSession("c-new").profile).toBeUndefined();
+
+    // 旧记录（没有 profile 字段）重启后套用 default_profile
+    stateStore.setChat("c-old", { foregroundId: "s-old", sessions: { "s-old": {
+      id: "s-old", cwd: "/w", createdAt: "", lastActiveAt: "", permissionMode: "default", model: "",
+    } } });
+    const m3 = new SessionManager(cfg, stateStore, broker, lark, logger);
+    expect(m3.getOrCreateSession("c-old").profile).toBe("fermi");
+  });
+
   it("handles a simple text message → Claude response", async () => {
     const events = async function* () {
       yield { type: "text" as const, text: "Hello! How can I help?" };

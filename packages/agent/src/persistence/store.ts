@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Logger } from "../util/logger.js";
 import type { PermissionMode, EffortLevel } from "../types.js";
@@ -13,8 +13,11 @@ export interface SessionRecord {
   permissionMode: PermissionMode;
   model: string;
   effort?: EffortLevel;
-  /** 运行档名（只存名字，不存地址/凭据）。 */
-  profile?: string;
+  /**
+   * 运行档名（只存名字，不存地址/凭据）。null = 用户明确选了 agent 默认环境；
+   * 缺省 = 从未设置（旧记录），套用 claude.default_profile。
+   */
+  profile?: string | null;
 }
 
 export interface ChatRecord {
@@ -49,6 +52,9 @@ function initialState(): StateData {
 export class StateStore {
   private state: StateData = initialState();
   private readonly filePath: string;
+  /** 保存串行化：前一次写完再写下一次。 */
+  private saveChain: Promise<void> = Promise.resolve();
+  private saveSeq = 0;
 
   constructor(
     private readonly stateDir: string,
@@ -79,14 +85,28 @@ export class StateStore {
     }
   }
 
-  async save(): Promise<void> {
-    const tmp = this.filePath + ".tmp";
-    // Ensure the state directory still exists (it may have been removed
-    // concurrently, e.g. during shutdown races) so writeFile/rename don't
-    // throw an uncaught ENOENT and crash the process.
+  /**
+   * 原子写入 state.json。多个会话会并发调用（例如关机时每个会话各存一次），
+   * 以前共用同一个 .tmp：一个先 rename 走，其余 rename 报 ENOENT；两次写入
+   * 还可能在同一 tmp 里交错，生成损坏的 JSON。现在串行执行，且每次用独立 tmp。
+   */
+  save(): Promise<void> {
+    const run = this.saveChain.then(() => this.writeNow());
+    this.saveChain = run.catch(() => {});
+    return run;
+  }
+
+  private async writeNow(): Promise<void> {
+    // 目录可能被并发删除（如关机竞态），先确保存在
     await mkdir(this.stateDir, { recursive: true });
-    await writeFile(tmp, JSON.stringify(this.state, null, 2));
-    await rename(tmp, this.filePath);
+    const tmp = `${this.filePath}.${process.pid}.${++this.saveSeq}.tmp`;
+    try {
+      await writeFile(tmp, JSON.stringify(this.state, null, 2));
+      await rename(tmp, this.filePath);
+    } catch (err) {
+      await rm(tmp, { force: true }).catch(() => {});
+      throw err;
+    }
   }
 
   getChat(chatId: string): ChatRecord | undefined {

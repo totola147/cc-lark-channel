@@ -74,6 +74,20 @@ describe("config [profiles]", () => {
     }
   });
 
+  it("validates claude.default_profile against [profiles]", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "clc-profile-"));
+    try {
+      const ok = join(dir, "ok.toml");
+      writeFileSync(ok, `[claude]\ndefault_profile = "fermi"\n[profiles.fermi]\nbase_url = "http://gw:80"\n`);
+      expect((await loadConfig(ok)).claude.default_profile).toBe("fermi");
+      const bad = join(dir, "bad.toml");
+      writeFileSync(bad, `[claude]\ndefault_profile = "nope"\n`);
+      await expect(loadConfig(bad)).rejects.toThrow(/default_profile/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("defaults to no profiles", async () => {
     const c = await loadConfig(join(tmpdir(), "does-not-exist-clc.toml"));
     expect(c.profiles).toEqual({});

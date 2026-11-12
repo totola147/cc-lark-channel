@@ -33,6 +33,8 @@ const ClaudeSchema = z.object({
   question_timeout_seconds: z.number().int().nonnegative().optional().default(600),
   max_queue_size: z.number().int().positive().optional().default(5),
   effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
+  // 新建会话默认使用的运行档（[profiles.<name>]）；不设则用 agent 进程自身环境
+  default_profile: z.string().optional(),
 }).optional().default({
   cli_path: "claude",
   default_model: "",
@@ -104,6 +106,15 @@ const ConfigSchema = z.object({
     .record(z.string().regex(/^[A-Za-z0-9._-]{1,64}$/, "profile 名只能含字母、数字、. _ -"), ProfileSchema)
     .optional()
     .default({}),
+}).superRefine((c, ctx) => {
+  const dp = c.claude.default_profile;
+  if (dp && !Object.hasOwn(c.profiles, dp)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["claude", "default_profile"],
+      message: `default_profile "${dp}" 未在 [profiles] 中定义`,
+    });
+  }
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;

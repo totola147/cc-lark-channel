@@ -45,7 +45,7 @@ export class SessionManager {
         (session as unknown as { id: string }).id = rec.id;
         session.providerSessionId = rec.providerSessionId;
         if (rec.name) session.name = rec.name;
-        if (rec.profile) session.profile = rec.profile;
+        session.profile = this.savedProfile(rec);
         this.attachTurnCallback(chatId, session);
         chat.sessions.set(session.id, session);
       }
@@ -255,7 +255,7 @@ export class SessionManager {
     if (saved?.providerSessionId) {
       session.providerSessionId = saved.providerSessionId;
     }
-    if (saved?.profile) session.profile = saved.profile;
+    session.profile = this.savedProfile(saved);
     this.attachTurnCallback(chatId, session);
     return session;
   }
@@ -272,8 +272,20 @@ export class SessionManager {
       this.config.claude.default_model,
       this.config.claude.effort,
     );
+    session.profile = this.config.claude.default_profile;
     this.attachTurnCallback(chatId, session);
     return session;
+  }
+
+  /** 存档里的档：null 表示明确选了默认环境；缺省（含无存档）套用 default_profile。 */
+  private savedProfile(rec: SessionRecord | undefined): string | undefined {
+    if (rec && rec.profile === null) return undefined;
+    return rec?.profile ?? this.config.claude.default_profile;
+  }
+
+  /** 立即持久化某个 chat 的会话（命令修改会话属性后调用）。 */
+  persist(chatId: string): void {
+    this.persistChat(chatId);
   }
 
   private attachTurnCallback(chatId: string, session: ClaudeSession): void {
@@ -304,7 +316,8 @@ export class SessionManager {
         permissionMode: s.permissionMode,
         model: s.model,
         effort: s.effort,
-        ...(s.profile ? { profile: s.profile } : {}),
+        // 与 default_profile 不同时才需要显式记录；undefined 记成 null（明确选了默认）
+        ...(s.profile !== this.config.claude.default_profile ? { profile: s.profile ?? null } : {}),
       };
     }
     this.stateStore.setChat(chatId, { foregroundId: chat.foregroundId, sessions });

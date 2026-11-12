@@ -7,6 +7,7 @@ import type { IncomingMessage, EffortLevel } from "../types.js";
 import { normalizePermissionMode, PERMISSION_MODES } from "../types.js";
 import type { Logger } from "../util/logger.js";
 import { getLiveSessionOwner } from "../claude/session-registry.js";
+import { resolveProfile } from "../claude/profile.js";
 
 interface CommandMatch {
   command: string;
@@ -40,7 +41,7 @@ export class CommandRouter {
     // 缩写命令统一归一成全名，后续作用域校验和分发都只认全名
     const command = COMMAND_ALIASES[raw] ?? raw;
 
-    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/effort", "/cd", "/bg", "/fg", "/kill", "/attach", "/update", "/workspace", "/workspaces", "/close", "/handback", "/help"];
+    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/effort", "/profile", "/cd", "/bg", "/fg", "/kill", "/attach", "/update", "/workspace", "/workspaces", "/close", "/handback", "/help"];
     if (!known.includes(command)) return null;
 
     return { command, args };
@@ -198,6 +199,11 @@ export class CommandRouter {
         const session = this.sessionManager.getOrCreateSession(chatId);
         session.effort = cmd.args as EffortLevel;
         await this.transport.sendText(chatId, `Effort: ${cmd.args}`);
+        break;
+      }
+
+      case "/profile": {
+        await this.handleProfile(chatId, cmd.args.trim());
         break;
       }
 
@@ -394,6 +400,53 @@ export class CommandRouter {
       }
     }
   }
+
+  /** /profile：无参列出可用档；带档名切换当前会话；default 回到 agent 默认环境。 */
+  private async handleProfile(chatId: string, arg: string): Promise<void> {
+    const profiles = Object.keys(this.config.profiles ?? {});
+    const session = this.sessionManager.getOrCreateSession(chatId);
+    const current = session.profile;
+
+    if (!arg) {
+      const lines = [`当前运行档：${current ?? "(agent default)"}`];
+      if (profiles.length === 0) {
+        lines.push("agent 配置中没有 [profiles]。");
+      } else {
+        lines.push("可用：");
+        lines.push(`${current ? "  " : "▶ "}default — agent 默认环境`);
+        for (const name of profiles) lines.push(`${name === current ? "▶ " : "  "}${name}`);
+        lines.push("", "切换：/profile <name>，回到默认：/profile default");
+      }
+      await this.transport.sendText(chatId, lines.join("\n"));
+      return;
+    }
+
+    if (session.getState() !== "idle") {
+      await this.transport.sendText(chatId, "⚠️ 会话正在运行，请等本轮结束（或 /stop）后再切换运行档");
+      return;
+    }
+
+    const target = arg === "default" ? undefined : arg;
+    if (target !== undefined) {
+      try {
+        // 提前校验档名与凭据，失败就不切换
+        resolveProfile(target, this.config);
+      } catch (err) {
+        await this.transport.sendText(chatId, `❌ ${(err as Error).message}`);
+        return;
+      }
+    }
+    if (target === current) {
+      await this.transport.sendText(chatId, `运行档未变：${current ?? "(agent default)"}`);
+      return;
+    }
+    session.profile = target;
+    this.sessionManager.persist(chatId);
+    const note = session.providerSessionId
+      ? "\n下一轮起生效，沿用当前会话历史；若新网关不接受原历史，会提示并开新会话。"
+      : "\n下一轮起生效。";
+    await this.transport.sendText(chatId, `运行档：${target ?? "(agent default)"}${note}`);
+  }
 }
 
 /** 命令缩写 → 全名 */
@@ -420,6 +473,7 @@ const HELP_TEXT = `cc-lark-channel commands:
 /mode <mode> — Set permission mode
 /model <name> — Switch model
 /effort <level> — Set reasoning effort (low|medium|high|xhigh|max)
+/profile [name|default] — List / switch the gateway profile (next turn)
 /cd <path> — Change working directory (starts new session)
 /help — Show this help
 

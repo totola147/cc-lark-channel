@@ -376,8 +376,8 @@ async function main() {
         if (model) {
           session.model = model;
         }
-        // 每次转移都以终端的档为准；不带档转移则回到 agent 默认环境。
-        session.profile = profile;
+        // 每次转移都以终端的档为准；终端没指定时用 default_profile（未配置则为 agent 默认环境）。
+        session.profile = profile ?? config.claude.default_profile;
         if (effort) {
           if (VALID_EFFORT_LEVELS.includes(effort as EffortLevel)) {
             session.effort = effort as EffortLevel;

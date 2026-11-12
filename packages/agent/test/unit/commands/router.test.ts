@@ -80,3 +80,70 @@ describe("CommandRouter /handback after an SDK fork (B6)", () => {
     expect(ws.sessionId).toBe("forked-id");
   });
 });
+
+describe("CommandRouter /profile", () => {
+  async function setup(state = "idle") {
+    const { vi } = await import("vitest");
+    const session: { profile?: string; providerSessionId?: string; getState: () => string } = {
+      getState: () => state,
+      providerSessionId: "p1",
+    };
+    const sessionManager = { getOrCreateSession: () => session, persist: vi.fn() };
+    const sent: string[] = [];
+    const transport = { sendText: vi.fn(async (_c: string, t: string) => { sent.push(t); return "m"; }) };
+    const config = { profiles: { fermi: { auth_token_env: "CLC_TEST_PROFILE_TOK" }, plain: {} } };
+    const router = new CommandRouter(
+      sessionManager as never,
+      transport as never,
+      config as never,
+      { isWorkspaceChat: () => false } as never,
+      {} as never,
+    );
+    const run = (args: string) => router.execute({ command: "/profile", args }, mockMsg(`/profile ${args}`));
+    return { session, sessionManager, sent, run };
+  }
+
+  it("is a known command", () => {
+    const router = new CommandRouter({} as never, {} as never, {} as never, {} as never);
+    expect(router.match(mockMsg("/profile fermi"))).toEqual({ command: "/profile", args: "fermi" });
+  });
+
+  it("lists profiles and marks the current one", async () => {
+    const { session, sent, run } = await setup();
+    session.profile = "plain";
+    await run("");
+    expect(sent[0]).toContain("当前运行档：plain");
+    expect(sent[0]).toContain("▶ plain");
+    expect(sent[0]).toContain("  fermi");
+  });
+
+  it("switches to a valid profile and persists", async () => {
+    const { session, sessionManager, run } = await setup();
+    await run("plain");
+    expect(session.profile).toBe("plain");
+    expect(sessionManager.persist).toHaveBeenCalledWith("chat-1");
+  });
+
+  it("refuses an unknown profile or one with missing credentials", async () => {
+    const { session, sent, run } = await setup();
+    await run("nope");
+    await run("fermi"); // CLC_TEST_PROFILE_TOK 未设置
+    expect(session.profile).toBeUndefined();
+    expect(sent[0]).toMatch(/未在 agent 配置中定义/);
+    expect(sent[1]).toMatch(/CLC_TEST_PROFILE_TOK/);
+  });
+
+  it("'default' clears the profile", async () => {
+    const { session, run } = await setup();
+    session.profile = "plain";
+    await run("default");
+    expect(session.profile).toBeUndefined();
+  });
+
+  it("refuses to switch while a turn is running", async () => {
+    const { session, sent, run } = await setup("generating");
+    await run("plain");
+    expect(session.profile).toBeUndefined();
+    expect(sent[0]).toMatch(/正在运行/);
+  });
+});

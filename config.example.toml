@@ -18,6 +18,7 @@ permission_timeout_seconds = 120
 question_timeout_seconds = 600   # AskUserQuestion 卡片无人作答多久后跳过；0 = 一直等待
 max_queue_size = 5
 # effort = "high"                 # optional: "low" | "medium" | "high" | "xhigh" | "max"
+# default_profile = "fermi"      # optional: 新建会话默认使用的 [profiles.<name>]
 
 [render]
 hide_thinking = false
@@ -34,7 +35,9 @@ state_dir = "~/.cc-lark-channel"
 [logging]
 level = "info"                   # "trace" | "debug" | "info" | "warn" | "error"
 
-# 运行档（可选）：飞书侧会话使用的网关/settings。终端用
+# 运行档（可选）：飞书侧会话使用的网关/settings。
+# 飞书里 /profile 查看/切换；[claude] default_profile = "fermi" 让新会话默认使用该档。
+# 终端用
 #   cc-session --lark-profile fermi ...     （或环境变量 CC_LARK_PROFILE=fermi）
 # 转移时只传档名，地址和凭据都由 agent 这边解析。凭据只写环境变量名，不写明文。
 # 档名或凭据缺失时转移会被拒绝，不会回落到默认网关。
