@@ -6,6 +6,11 @@ import type { QuestionSpec } from "../lark/cards/question-card.js";
 import { parseImageDataUri } from "../util/image-mime.js";
 import { buildEnv } from "./profile.js";
 
+/** 任务全部结束后，等 CLI 是否又起新一轮的宽限。 */
+const BACKGROUND_GRACE_MS = 3000;
+/** 出 result 后仍有后台任务时，最长等待时间。 */
+const BACKGROUND_MAX_WAIT_MS = 30 * 60 * 1000;
+
 export interface QueryOptions {
   prompt: string;
   imageDataUris?: string[];
@@ -40,20 +45,48 @@ export function createQuery(
   const abort = new AbortController();
   let aborted = false;
 
-  // Build prompt: string for text-only, AsyncIterable<SDKUserMessage> for multimodal
-  let promptInput: string | AsyncIterable<{ type: "user"; message: { role: "user"; content: unknown[] }; parent_tool_use_id: null }>;
-  if (opts.imageDataUris?.length) {
-    const content: unknown[] = [];
-    if (opts.prompt) content.push({ type: "text", text: opts.prompt });
-    for (const uri of opts.imageDataUris) {
-      const { mediaType, data } = parseImageDataUri(uri);
-      content.push({ type: "image", source: { type: "base64", media_type: mediaType, data } });
-    }
-    const msg = { type: "user" as const, message: { role: "user" as const, content }, parent_tool_use_id: null };
-    promptInput = (async function* () { yield msg; })();
-  } else {
-    promptInput = opts.prompt;
+  // 输入流必须保持打开，直到本轮的后台任务（run_in_background 的 agent/命令）
+  // 全部结束。SDK 对字符串 prompt 当作单轮查询：第一个 result 一到就关闭 CLI
+  // 的 stdin，而权限确认（canUseTool）走的正是这条通道。后台任务完成后 CLI 会被
+  // task-notification 唤醒开启新一轮，此时通道已关，所有需要确认的工具调用都会
+  // 报 "Tool permission request failed: AbortError: Stream closed"。
+  // 因此一律用 async generator 作为 prompt，由 closeInput() 决定何时放手。
+  let closeInput!: () => void;
+  const inputClosed = new Promise<void>((resolve) => { closeInput = resolve; });
+  const content: unknown[] = [];
+  if (opts.prompt) content.push({ type: "text", text: opts.prompt });
+  for (const uri of opts.imageDataUris ?? []) {
+    const { mediaType, data } = parseImageDataUri(uri);
+    content.push({ type: "image", source: { type: "base64", media_type: mediaType, data } });
   }
+  const userMsg = { type: "user" as const, message: { role: "user" as const, content }, parent_tool_use_id: null };
+  const promptInput = (async function* () {
+    yield userMsg;
+    await inputClosed;
+  })();
+
+  // 后台任务跟踪：只有「已出 result、没有运行中的任务、CLI 空闲」才关输入。
+  const runningTasks = new Set<string>();
+  let sawResult = false;
+  let cliState: "idle" | "running" | "requires_action" | undefined;
+  let closeTimer: ReturnType<typeof setTimeout> | null = null;
+  let capTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearTimers = () => {
+    if (closeTimer) clearTimeout(closeTimer);
+    if (capTimer) clearTimeout(capTimer);
+    closeTimer = capTimer = null;
+  };
+  const closeNow = () => { clearTimers(); closeInput(); };
+  const maybeClose = () => {
+    if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+    if (!sawResult || runningTasks.size > 0 || cliState === "running") return;
+    // 任务刚结束时 CLI 可能马上起新一轮（处理 task-notification），给一点宽限。
+    closeTimer = setTimeout(() => {
+      closeTimer = null;
+      if (sawResult && runningTasks.size === 0 && cliState !== "running") closeNow();
+    }, BACKGROUND_GRACE_MS);
+  };
+  abort.signal.addEventListener("abort", closeNow, { once: true });
 
   // Whether the user launched with --dangerously-skip-permissions (mapped to
   // "bypassPermissions" at transfer time). We do NOT pass bypassPermissions to
@@ -100,7 +133,7 @@ export function createQuery(
   };
 
   const q = query({
-    prompt: promptInput as Parameters<typeof query>[0]["prompt"],
+    prompt: promptInput as unknown as Parameters<typeof query>[0]["prompt"],
     options: {
       cwd: opts.cwd,
       model: opts.model || undefined,
@@ -118,6 +151,29 @@ export function createQuery(
     },
   });
 
+  const trackBackground = (m: Record<string, unknown>) => {
+    const id = typeof m.task_id === "string" ? m.task_id : undefined;
+    switch (m.subtype) {
+      case "task_started":
+        if (id && !m.skip_transcript) runningTasks.add(id);
+        break;
+      case "task_notification":
+        if (id) runningTasks.delete(id);
+        break;
+      case "task_updated": {
+        const status = (m.patch as { status?: string } | undefined)?.status;
+        if (id && (status === "completed" || status === "failed" || status === "killed")) runningTasks.delete(id);
+        break;
+      }
+      case "session_state_changed":
+        cliState = m.state as typeof cliState;
+        break;
+      default:
+        return;
+    }
+    maybeClose();
+  };
+
   const events: AsyncIterable<RenderEvent> & { sessionId?: string } = {
     sessionId: undefined,
     async *[Symbol.asyncIterator]() {
@@ -126,6 +182,8 @@ export function createQuery(
       let outputTokens = 0;
       let resolvedModel: string | undefined;
       let contextWindow: number | undefined;
+      // 最近一次主线程 API 调用的 prompt 大小，即当前上下文占用。
+      let contextTokens = 0;
 
       try {
         for await (const msg of q as AsyncIterable<SDKMessage>) {
@@ -142,6 +200,10 @@ export function createQuery(
               }
             }
           }
+          if (msg.type === "assistant" && !msg.parent_tool_use_id && msg.message?.usage) {
+            const t = promptTokens(msg.message.usage);
+            if (t > 0) contextTokens = t;
+          }
           if (msg.type === "assistant" && msg.message?.content) {
             for (const block of msg.message.content) {
               if (block.type === "text" && block.text) {
@@ -155,6 +217,9 @@ export function createQuery(
               }
             }
           }
+          if (msg.type === "system") {
+            trackBackground(msg as unknown as Record<string, unknown>);
+          }
           if (msg.type === "system" && msg.subtype === "init") {
             if (msg.model) resolvedModel = msg.model;
             // 尽早记下会话 id：轮次被中断时（拿不到 result）也能继续 resume。
@@ -164,7 +229,14 @@ export function createQuery(
             yield { type: "init" as const, model: msg.model };
           }
           if (msg.type === "result") {
-            inputTokens = msg.usage?.input_tokens ?? 0;
+            sawResult = true;
+            // 有后台任务时最多再等这么久，防止任务悬挂导致本轮永不结束。
+            if (runningTasks.size === 0) {
+              closeNow(); // 没有后台任务：与原单轮行为一致，立即放手
+            } else if (!capTimer) {
+              capTimer = setTimeout(closeNow, BACKGROUND_MAX_WAIT_MS);
+            }
+            inputTokens = promptTokens(msg.usage);
             outputTokens = msg.usage?.output_tokens ?? 0;
             if (msg.session_id) {
               events.sessionId = msg.session_id;
@@ -181,12 +253,15 @@ export function createQuery(
           }
         }
       } catch (err) {
+        closeNow();
         if (aborted) {
           logger.debug("Query iterator threw after abort — expected");
           return;
         }
         throw err;
       }
+
+      closeNow();
 
       // 被中断的轮次没有完成，不发 turn_end，免得调用方当成正常结束。
       if (aborted) return;
@@ -195,6 +270,7 @@ export function createQuery(
         type: "turn_end" as const,
         durationMs: Date.now() - startTime,
         inputTokens,
+        contextTokens: contextTokens || inputTokens,
         outputTokens,
         model: resolvedModel,
         contextWindow,
@@ -250,11 +326,25 @@ function normalizeQuestions(input: Record<string, unknown>): QuestionSpec[] {
   return out;
 }
 
+/** input_tokens 只含未命中缓存的部分；缓存读写要另加。 */
+interface Usage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+}
+
+/** 一次 API 调用实际送进模型的 prompt 大小（含缓存命中/写入）。 */
+export function promptTokens(u: Usage | undefined): number {
+  return (u?.input_tokens ?? 0) + (u?.cache_read_input_tokens ?? 0) + (u?.cache_creation_input_tokens ?? 0);
+}
+
 interface SDKMessage {
   type: string;
   subtype?: string;
-  message?: { content?: readonly SDKContentBlock[] };
-  usage?: { input_tokens?: number; output_tokens?: number };
+  message?: { content?: readonly SDKContentBlock[]; usage?: Usage };
+  parent_tool_use_id?: string | null;
+  usage?: Usage;
   session_id?: string;
   /** Present on 'system'/'init' messages: the resolved model name. */
   model?: string;

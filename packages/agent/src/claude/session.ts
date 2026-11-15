@@ -1,6 +1,7 @@
 import type { Logger } from "../util/logger.js";
 import type { Transport } from "../transport/interface.js";
 import type { PermissionBroker, SessionPermissions } from "./permission-broker.js";
+import { effectiveContextWindow } from "./context-window.js";
 import { resolveProfile, type ResolvedProfile } from "./profile.js";
 import type { AppConfig } from "../config.js";
 import type { RenderEvent, SessionState, PermissionMode, EffortLevel } from "../types.js";
@@ -44,6 +45,8 @@ export class ClaudeSession {
 
   private turnCount = 0;
   private totalInputTokens = 0;
+  /** 本会话所用 --settings 文件，用于推算 ctx% 的有效窗口。 */
+  private settingsPath?: string;
   private totalOutputTokens = 0;
   providerSessionId?: string;
   /** 运行档名（见 claude/profile.ts）；未设置时用 agent 默认环境。 */
@@ -204,6 +207,7 @@ export class ClaudeSession {
       this.logger,
     );
     this.currentHandle = handle;
+    this.settingsPath = resolved?.settings;
 
     let completedNaturally = false;
     let startupTimedOut = false;
@@ -355,12 +359,15 @@ export class ClaudeSession {
         this.cardState.currentTool = undefined;
         break;
       case "turn_end":
-        this.cardState.inputTokens = event.inputTokens;
+        // 状态栏显示当前上下文占用（最近一次调用的 prompt 大小），ctx% 才有意义
+        this.cardState.inputTokens = event.contextTokens ?? event.inputTokens;
         this.cardState.outputTokens = event.outputTokens;
         this.cardState.elapsedMs = event.durationMs;
         this.cardState.done = true;
         if (event.model) this.cardState.model = event.model;
-        if (event.contextWindow) this.cardState.contextWindow = event.contextWindow;
+        if (event.contextWindow) {
+          this.cardState.contextWindow = effectiveContextWindow(event.contextWindow, this.settingsPath);
+        }
         this.totalInputTokens += event.inputTokens;
         this.totalOutputTokens += event.outputTokens;
         break;

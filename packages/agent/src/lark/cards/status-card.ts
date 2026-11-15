@@ -108,7 +108,8 @@ export function buildStatusLine(state: StatusLineState): string {
   if (dir) parts.push(esc(dir));
   parts.push(`in: ${state.inputTokens} out: ${state.outputTokens} tok`);
   if (state.contextWindow && state.contextWindow > 0) {
-    const pct = Math.min(100, Math.round((state.inputTokens / state.contextWindow) * 100));
+    // 不钳在 100%：溢出时要能看到真实占比（与终端状态栏一致）
+    const pct = Math.round((state.inputTokens / state.contextWindow) * 100);
     parts.push(`ctx: ${pct}%`);
   }
   if (state.effort) parts.push(`effort: ${esc(state.effort)}`);

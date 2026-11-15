@@ -55,7 +55,7 @@ export type RenderEvent =
   | { type: "thinking"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "tool_result"; toolUseId: string; isError: boolean; text: string }
-  | { type: "turn_end"; durationMs: number; inputTokens: number; outputTokens: number; model?: string; contextWindow?: number }
+  | { type: "turn_end"; durationMs: number; inputTokens: number; contextTokens?: number; outputTokens: number; model?: string; contextWindow?: number }
   | { type: "queued"; position: number }
   | { type: "interrupted"; reason: "stop" | "bang_prefix" }
   | { type: "stop_ack" }

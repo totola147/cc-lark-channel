@@ -7,7 +7,10 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   query: (args: { prompt: unknown; options: Record<string, unknown> }) => {
     calls.push(args);
     return (async function* () {
-      for (const m of script) yield m;
+      for (const m of script) {
+        if (m === "WAIT") { await new Promise((r) => setTimeout(r, 50)); continue; }
+        yield m;
+      }
     })();
   },
 }));
@@ -55,6 +58,51 @@ describe("createQuery", () => {
       (c) => c.type === "image",
     );
     expect(img?.source?.media_type).toBe("image/jpeg");
+  });
+
+  it("keeps the input stream open while background tasks run, closes after they finish", async () => {
+    script = [
+      { type: "system", subtype: "task_started", task_id: "a1" },
+      { type: "result", usage: {} },
+      "WAIT",
+      { type: "system", subtype: "task_notification", task_id: "a1", status: "completed" },
+      { type: "result", usage: {} },
+    ];
+    const h = createQuery(base, "c1", broker, logger);
+    const prompt = calls[0]!.prompt as AsyncIterable<unknown>;
+    const it = prompt[Symbol.asyncIterator]();
+    await it.next(); // 用户消息
+    let closed = false;
+    void it.next().then(() => { closed = true; });
+    const run = collect(h.events);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(closed).toBe(false); // result 已到但后台任务未结束
+    await run;
+    await new Promise((r) => setTimeout(r, 20));
+    expect(closed).toBe(true);
+  });
+
+  it("closes the input stream right after result when no background task", async () => {
+    script = [{ type: "result", usage: {} }];
+    const h = createQuery(base, "c1", broker, logger);
+    const it = (calls[0]!.prompt as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+    await it.next();
+    const second = it.next();
+    await collect(h.events);
+    expect((await second).done).toBe(true);
+  });
+
+  it("counts cached prompt tokens in input and context size", async () => {
+    script = [
+      { type: "assistant", message: { content: [], usage: { input_tokens: 1, cache_read_input_tokens: 20000, cache_creation_input_tokens: 500 } } },
+      { type: "assistant", parent_tool_use_id: "sub", message: { content: [], usage: { input_tokens: 1, cache_read_input_tokens: 999999 } } },
+      { type: "assistant", message: { content: [], usage: { input_tokens: 2, cache_read_input_tokens: 21000, cache_creation_input_tokens: 300 } } },
+      { type: "result", usage: { input_tokens: 3, output_tokens: 9, cache_read_input_tokens: 41000, cache_creation_input_tokens: 800 } },
+    ];
+    const events = (await collect(createQuery(base, "c1", broker, logger).events)) as Array<Record<string, unknown>>;
+    const end = events.find((e) => e.type === "turn_end")!;
+    expect(end.inputTokens).toBe(41803);
+    expect(end.contextTokens).toBe(21302);
   });
 
   it("requests summarized thinking only when asked (A2)", async () => {

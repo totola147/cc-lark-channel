@@ -7,6 +7,11 @@ import pino from "pino";
 
 const logger = pino({ level: "silent" });
 
+// 隔离本机 ~/.claude/settings.json 的 autoCompactWindow，保证测试可重复
+vi.mock("../../../src/claude/context-window", () => ({
+  effectiveContextWindow: (w: number | undefined) => w,
+}));
+
 vi.mock("../../../src/claude/query", () => ({
   createQuery: vi.fn(),
 }));
