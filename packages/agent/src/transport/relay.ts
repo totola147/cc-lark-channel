@@ -17,6 +17,10 @@ export interface RelayTransportConfig {
   reconnectIntervalMs?: number;
   /** 单个请求等待 relay 响应的上限，默认 15 秒。 */
   requestTimeoutMs?: number;
+  /** WebSocket 握手超时，默认 10 秒。避免半开 TCP 让 connect 永远挂起。 */
+  handshakeTimeoutMs?: number;
+  /** 连续这么久没收到 relay 任何消息（relay 每 30s 发 ping）就判定连接已死并重连，默认 90 秒。 */
+  livenessTimeoutMs?: number;
 }
 
 export class RelayTransport implements Transport {
@@ -27,6 +31,7 @@ export class RelayTransport implements Transport {
   private readonly pending = new Map<string, Deferred<RelayResponse>>();
   private reconnecting = false;
   private closed = false;
+  private livenessTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(config: RelayTransportConfig, logger: Logger) {
     this.config = config;
@@ -90,10 +95,12 @@ export class RelayTransport implements Transport {
   private async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       const wsUrl = this.config.relayUrl.endsWith("/ws") ? this.config.relayUrl : `${this.config.relayUrl}/ws`;
-      this.ws = new WebSocket(wsUrl);
+      const ws = new WebSocket(wsUrl, { handshakeTimeout: this.config.handshakeTimeoutMs ?? 10000 });
+      this.ws = ws;
 
-      this.ws.on("open", () => {
+      ws.on("open", () => {
         this.logger.info("Connected to relay");
+        this.armLiveness(ws);
         this.send({ type: "auth", openId: this.config.openId, agentId: this.config.agentId, ...(this.config.token ? { token: this.config.token } : {}) });
         // Re-assert chat ownership so the relay rebuilds chat->agent routing
         // (its map is in-memory and lost across restarts/reconnects).
@@ -104,24 +111,40 @@ export class RelayTransport implements Transport {
         resolve();
       });
 
-      this.ws.on("message", (data) => {
+      ws.on("message", (data) => {
+        this.armLiveness(ws);
         this.handleMessage(data.toString());
       });
 
-      this.ws.on("close", () => {
+      ws.on("close", () => {
+        if (this.ws !== ws) return; // 已被新连接取代的旧 socket
+        this.clearLiveness();
         this.logger.warn("Relay connection closed");
         // 已发出的请求不会再收到响应（relay 侧按连接配对），立即失败而不是干等 15 秒。
         this.failPending("relay connection closed");
         if (!this.closed) this.scheduleReconnect();
       });
 
-      this.ws.on("error", (err) => {
+      ws.on("error", (err) => {
         this.logger.error({ err }, "Relay WebSocket error");
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        if (ws.readyState !== WebSocket.OPEN) {
           reject(err);
         }
       });
     });
+  }
+
+  private armLiveness(ws: WebSocket): void {
+    this.clearLiveness();
+    this.livenessTimer = setTimeout(() => {
+      this.logger.warn("Relay silent too long, terminating connection");
+      ws.terminate(); // 触发 close → 重连
+    }, this.config.livenessTimeoutMs ?? 90000);
+  }
+
+  private clearLiveness(): void {
+    if (this.livenessTimer) clearTimeout(this.livenessTimer);
+    this.livenessTimer = null;
   }
 
   private handleMessage(raw: string): void {

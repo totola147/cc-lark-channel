@@ -33,6 +33,9 @@ jobs:
           sudo mkdir -p /opt/cc-lark-relay/node_modules/@cc-lark/protocol
           sudo chown -R $(whoami) /opt/cc-lark-relay
           rsync -a --exclude='node_modules' --exclude='.git' --exclude='.env' packages/relay/ /opt/cc-lark-relay/
+          # relay 从 dist/../docs/ 读落地页；docs/ 在仓库根目录，不在 packages/relay/ 下，需单独同步，
+          # 否则页面停留在旧版，与后端的 OAuth cookie 流程不匹配（确认配对按钮永远是灰的）。
+          rsync -a docs/ /opt/cc-lark-relay/docs/
           rsync -a packages/protocol/dist/ /opt/cc-lark-relay/node_modules/@cc-lark/protocol/dist/
           cp packages/protocol/package.json /opt/cc-lark-relay/node_modules/@cc-lark/protocol/
           cd /opt/cc-lark-relay
