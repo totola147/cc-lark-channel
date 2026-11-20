@@ -15,15 +15,21 @@ import { buildRecap } from "./claude/session-recap.js";
 const CONFIG_PATH = process.env["CLC_CONFIG"] ?? resolve(process.cwd(), "config.toml");
 
 async function main() {
-  // Auto-update on startup
-  try {
-    const { execSync } = await import("node:child_process");
-    const result = execSync("git pull", { cwd: process.cwd(), encoding: "utf-8", timeout: 30000 });
-    if (!result.includes("Already up to date")) {
-      execSync("npm run build", { cwd: process.cwd(), encoding: "utf-8", timeout: 60000 });
-      console.log("✅ Auto-updated to latest version");
+  // 启动时自动 git pull + build 需显式开启（CLC_AUTO_UPDATE=1）。默认关闭：
+  // 每次服务重启都静默拉取并执行远端代码，风险过高，也会让版本难以追溯。
+  if (process.env["CLC_AUTO_UPDATE"] === "1") {
+    try {
+      const { execFileSync } = await import("node:child_process");
+      const cwd = process.cwd();
+      const result = execFileSync("git", ["-c", `safe.directory=${cwd}`, "pull", "--ff-only"], { cwd, encoding: "utf-8", timeout: 30000 });
+      if (!result.includes("Already up to date")) {
+        execFileSync("npm", ["run", "build"], { cwd, encoding: "utf-8", timeout: 60000 });
+        console.log("✅ Auto-updated to latest version");
+      }
+    } catch (err) {
+      console.warn(`⚠️  Auto-update failed: ${(err as Error).message.slice(0, 200)}`);
     }
-  } catch {}
+  }
 
   const config = await loadConfig(CONFIG_PATH);
   const logger = createLogger(config.logging.level);

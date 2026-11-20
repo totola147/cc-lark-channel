@@ -342,18 +342,22 @@ export class CommandRouter {
 
       case "/update": {
         try {
-          const { execSync } = await import("node:child_process");
+          const { execFileSync } = await import("node:child_process");
           const { writeFileSync } = await import("node:fs");
           const { join } = await import("node:path");
           const cwd = process.cwd();
-          execSync(`git config --global --add safe.directory ${cwd}`, { encoding: "utf-8", timeout: 5000 });
-          const pullResult = execSync("git pull", { cwd, encoding: "utf-8", timeout: 30000 });
+          // 用 -c 临时信任仓库目录：不经 shell 拼接路径，也不往全局 gitconfig 里反复追加。
+          const pullResult = execFileSync("git", ["-c", `safe.directory=${cwd}`, "pull", "--ff-only"], {
+            cwd,
+            encoding: "utf-8",
+            timeout: 30000,
+          });
           if (pullResult.includes("Already up to date")) {
             await this.larkClient.sendText(chatId, "✅ Already up to date");
             break;
           }
           await this.larkClient.sendText(chatId, "🔄 New version found, building...");
-          execSync("npm run build", { cwd, encoding: "utf-8", timeout: 60000 });
+          execFileSync("npm", ["run", "build"], { cwd, encoding: "utf-8", timeout: 60000 });
           await this.larkClient.sendText(chatId, "🔄 Restarting...");
           const stateDir = join(cwd, ".state");
           try { writeFileSync(join(stateDir, "update-restart.json"), JSON.stringify({ chatId })); } catch {}
