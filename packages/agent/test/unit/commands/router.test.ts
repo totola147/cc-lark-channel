@@ -147,3 +147,68 @@ describe("CommandRouter /profile", () => {
     expect(sent[0]).toMatch(/正在运行/);
   });
 });
+
+describe("CommandRouter /goal", () => {
+  async function setup(opts: { state?: string; sid?: string; released?: boolean } = {}) {
+    const { vi } = await import("vitest");
+    const session = {
+      getState: () => opts.state ?? "idle",
+      providerSessionId: "sid" in opts ? opts.sid : "p1",
+      submit: vi.fn(async () => ({ kind: opts.state && opts.state !== "idle" ? "queued" : "started", position: 1 })),
+      interrupt: vi.fn(async () => {}),
+    };
+    const sessionManager = { getOrCreateSession: () => session, persist: vi.fn() };
+    const sent: string[] = [];
+    const transport = { sendText: vi.fn(async (_c: string, t: string) => { sent.push(t); return "m"; }) };
+    const router = new CommandRouter(
+      sessionManager as never,
+      transport as never,
+      {} as never,
+      { isWorkspaceChat: () => false, isReleased: () => !!opts.released } as never,
+      {} as never,
+    );
+    const run = (args: string) => router.execute({ command: "/goal", args }, mockMsg(`/goal ${args}`));
+    return { session, sent, run };
+  }
+
+  it("is a known command", () => {
+    const router = new CommandRouter({} as never, {} as never, {} as never, {} as never);
+    expect(router.match(mockMsg("/goal 测试全部通过"))).toEqual({ command: "/goal", args: "测试全部通过" });
+  });
+
+  it("forwards the condition to the CLI's /goal", async () => {
+    const { session, run } = await setup();
+    await run("所有测试通过");
+    expect(session.submit).toHaveBeenCalledWith("/goal 所有测试通过", undefined, "user-1");
+  });
+
+  it("queues a new goal while busy", async () => {
+    const { session, sent, run } = await setup({ state: "generating" });
+    await run("x");
+    expect(session.submit).toHaveBeenCalledWith("/goal x", undefined, "user-1");
+    expect(sent[0]).toMatch(/Queued/);
+  });
+
+  it("shows / clears without spawning a session when there is none", async () => {
+    const { session, sent, run } = await setup({ sid: undefined });
+    await run("");
+    await run("clear");
+    expect(session.submit).not.toHaveBeenCalled();
+    expect(sent[0]).toMatch(/当前没有目标/);
+  });
+
+  it("clear interrupts a running goal instead of queuing behind it", async () => {
+    // 新会话第一轮还没写入 providerSessionId，也要能清除
+    const { session, run } = await setup({ state: "generating", sid: undefined });
+    await run("CLEAR");
+    expect(session.interrupt).toHaveBeenCalledWith("/goal clear", "user-1");
+    expect(session.submit).not.toHaveBeenCalled();
+  });
+
+  it("refuses after the session was handed back to the terminal", async () => {
+    const { session, sent, run } = await setup({ released: true });
+    await run("x");
+    expect(session.submit).not.toHaveBeenCalled();
+    expect(sent[0]).toMatch(/交还终端/);
+  });
+});

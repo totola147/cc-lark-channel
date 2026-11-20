@@ -41,7 +41,7 @@ export class CommandRouter {
     // 缩写命令统一归一成全名，后续作用域校验和分发都只认全名
     const command = COMMAND_ALIASES[raw] ?? raw;
 
-    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/effort", "/profile", "/cd", "/bg", "/fg", "/kill", "/attach", "/update", "/workspace", "/workspaces", "/close", "/handback", "/help"];
+    const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/effort", "/profile", "/goal", "/cd", "/bg", "/fg", "/kill", "/attach", "/update", "/workspace", "/workspaces", "/close", "/handback", "/help"];
     if (!known.includes(command)) return null;
 
     return { command, args };
@@ -204,6 +204,11 @@ export class CommandRouter {
 
       case "/profile": {
         await this.handleProfile(chatId, cmd.args.trim());
+        break;
+      }
+
+      case "/goal": {
+        await this.handleGoal(msg, cmd.args.trim());
         break;
       }
 
@@ -447,7 +452,59 @@ export class CommandRouter {
       : "\n下一轮起生效。";
     await this.transport.sendText(chatId, `运行档：${target ?? "(agent default)"}${note}`);
   }
+
+  /**
+   * /goal 交给 Claude Code CLI 自己的 /goal 处理：SDK 输入里的 "/goal ..." 会被
+   * CLI 当作本地命令执行。设定目标后 CLI 在同一轮里持续工作，每次要停下时由独立的
+   * 评估器判断条件是否满足，满足才结束本轮；目标随会话 jsonl 保存，resume 后仍在。
+   *
+   * - `/goal <条件>`：设定目标并开始执行；会话忙时和普通消息一样排队。
+   * - `/goal`：查看当前目标（CLI 本地命令，不调用模型）。
+   * - `/goal clear`：清除目标。目标进行中时先中断本轮，否则清除要排到目标达成之后。
+   */
+  private async handleGoal(msg: IncomingMessage, arg: string): Promise<void> {
+    const { chatId } = msg;
+    // 斜杠命令在交还守卫之前分发，这里要自己拦：/goal 会写入会话
+    if (this.workspaceManager.isReleased(chatId)) {
+      await this.transport.sendText(chatId, "⏸ 该会话已交还终端 (cc cli)，/goal 不可用。如需在飞书继续，请在终端重新执行 cc-transfer 转移。");
+      return;
+    }
+
+    const session = this.sessionManager.getOrCreateSession(chatId);
+    const isClear = GOAL_CLEAR_WORDS.has(arg.toLowerCase());
+    const busy = session.getState() !== "idle";
+
+    if (!arg || isClear) {
+      // 先看是否在跑：新会话第一轮进行中时 providerSessionId 还没写入，但目标已经生效
+      if (isClear && busy) {
+        await session.interrupt("/goal clear", msg.senderOpenId);
+        this.sessionManager.persist(chatId);
+        return;
+      }
+      if (!arg && busy) {
+        await this.transport.sendText(chatId, "⚠️ 会话正在运行，等本轮结束后再查看目标；要提前结束目标用 /goal clear");
+        return;
+      }
+      // 空闲且还没有 CLI 会话就不可能有目标；不为查询拉起一个空会话
+      if (!session.providerSessionId) {
+        await this.transport.sendText(chatId, "当前没有目标。用法：/goal <完成条件>");
+        return;
+      }
+    }
+
+    const text = isClear ? "/goal clear" : arg ? `/goal ${arg}` : "/goal";
+    const result = await session.submit(text, undefined, msg.senderOpenId);
+    if (result.kind === "queued") {
+      await this.transport.sendText(chatId, `📋 Queued (position ${result.position})`);
+    } else if (result.kind === "rejected") {
+      await this.transport.sendText(chatId, "⚠️ Queue full, please wait");
+    }
+    this.sessionManager.persist(chatId);
+  }
 }
+
+/** CLI /goal 认作「清除」的参数。 */
+const GOAL_CLEAR_WORDS = new Set(["clear", "stop", "off", "reset", "none", "cancel"]);
 
 /** 命令缩写 → 全名 */
 const COMMAND_ALIASES: Record<string, string> = {
@@ -474,6 +531,7 @@ const HELP_TEXT = `cc-lark-channel commands:
 /model <name> — Switch model
 /effort <level> — Set reasoning effort (low|medium|high|xhigh|max)
 /profile [name|default] — List / switch the gateway profile (next turn)
+/goal <condition> — Keep working until the condition is met (/goal shows it, /goal clear ends it)
 /cd <path> — Change working directory (starts new session)
 /help — Show this help
 
