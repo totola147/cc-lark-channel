@@ -30,6 +30,12 @@ export class ClaudeSession {
   private queue: QueuedInput[] = [];
   private currentHandle: QueryHandle | null = null;
   private statusCardId: string | null = null;
+  /**
+   * 首张状态卡片的 sendCard 尚未返回时置位。期间的 flush（心跳、节流定时器、新事件）
+   * 等它返回再 update，而不是看到 statusCardId 为空又各自 sendCard——relay 往返慢时
+   * 那样会一轮发出多张卡片，只有最后一张被 finalize，其余永远停在 Generating。
+   */
+  private statusCardPending: Promise<string | null> | null = null;
   private cardState: StatusCardState = this.freshCardState();
   private lastCardUpdate = 0;
   private cardUpdateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -167,6 +173,7 @@ export class ClaudeSession {
     if (senderOpenId) this.perms.setRequester(senderOpenId);
     this.cardState = this.freshCardState();
     this.statusCardId = null;
+    this.statusCardPending = null;
     this.turnStartMs = Date.now();
     this.toolCount = 0;
     this.finalReplyText = "";
@@ -406,10 +413,28 @@ export class ClaudeSession {
     const card = buildStatusCard(this.cardState);
 
     try {
-      if (!this.statusCardId) {
-        this.statusCardId = await this.transport.sendCard(this.chatId, card);
-      } else {
+      if (this.statusCardId) {
         await this.transport.updateCard(this.statusCardId, card);
+        return;
+      }
+      if (this.statusCardPending) {
+        // 首张卡片正在创建：等它返回后用最新状态 update，不再另发一张
+        const id = await this.statusCardPending;
+        if (id && id === this.statusCardId) {
+          await this.transport.updateCard(id, buildStatusCard(this.cardState));
+        }
+        return;
+      }
+      const pending = this.transport.sendCard(this.chatId, card).then(
+        (id) => id || null,
+        (err) => { this.logger.warn({ err }, "Failed to send status card"); return null; },
+      );
+      this.statusCardPending = pending;
+      const id = await pending;
+      // 仍是本轮的创建请求才记下 id（期间可能已开新轮次或已 finalize）
+      if (this.statusCardPending === pending) {
+        this.statusCardPending = null;
+        this.statusCardId = id;
       }
     } catch (err) {
       this.logger.warn({ err }, "Failed to update status card");
@@ -458,6 +483,15 @@ export class ClaudeSession {
     if (this.cardUpdateTimer) {
       clearTimeout(this.cardUpdateTimer);
       this.cardUpdateTimer = null;
+    }
+    if (!this.statusCardId && this.statusCardPending) {
+      // 卡片还在创建中就收尾了：等它落地再更新为最终状态，否则它会停在 Generating
+      const pending = this.statusCardPending;
+      const id = await pending;
+      if (this.statusCardPending === pending) {
+        this.statusCardPending = null;
+        this.statusCardId = id;
+      }
     }
     if (this.statusCardId) {
       this.cardState.done = true;

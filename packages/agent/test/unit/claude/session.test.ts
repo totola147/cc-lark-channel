@@ -405,6 +405,42 @@ describe("ClaudeSession", () => {
     }
   });
 
+  it("sends exactly one status card per turn even when sendCard is slow", async () => {
+    // relay 往返慢时，首张卡片创建期间的心跳/事件 flush 曾各自再发一张卡片，
+    // 只有最后一张被 finalize，其余永远停在 Generating。
+    const slowLark = mockLark();
+    let n = 0;
+    vi.mocked(slowLark.sendCard).mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 120));
+      return `card-${++n}`;
+    });
+    const s = new ClaudeSession(
+      "chat-1",
+      { ...mockConfig, render: { ...mockConfig.render, heartbeat_interval_ms: 20, final_reply_as_message: false } },
+      slowLark, broker, logger, "/tmp", "default", "",
+    );
+    const events = async function* () {
+      yield { type: "init" as const, model: "m" };
+      await new Promise((r) => setTimeout(r, 60));
+      yield { type: "text" as const, text: "a" };
+      yield { type: "turn_end" as const, durationMs: 1, inputTokens: 1, outputTokens: 1 };
+    };
+    vi.mocked(createQuery).mockReturnValue({
+      events: Object.assign(events(), { sessionId: "s" }),
+      interrupt: vi.fn(),
+    });
+
+    await s.submit("q");
+    await new Promise((r) => setTimeout(r, 500));
+
+    expect(vi.mocked(slowLark.sendCard)).toHaveBeenCalledTimes(1);
+    const updates = vi.mocked(slowLark.updateCard).mock.calls;
+    expect(updates.every((c) => c[0] === "card-1")).toBe(true);
+    // 最后一次更新是收尾的 Done 卡片
+    expect(JSON.stringify(updates.at(-1)![1])).toContain("Done");
+    expect(s.getState()).toBe("idle");
+  });
+
   it("retries fresh when a resumed CLI never starts within 30s", async () => {
     vi.useFakeTimers();
     try {
