@@ -207,12 +207,6 @@ node dist/index.cjs</code></pre>
   }
   checkAuth();
 
-  document.getElementById("bind-btn").disabled = false;
-        window.location.hash = "";
-      }
-    }
-  })();
-
   document.getElementById("bind-btn").addEventListener("click", async () => {
     const code = document.getElementById("device-code-input").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (!code || code.length < 6) { showStatus("bind-status", "请输入 6 位设备码", "warn"); return; }
