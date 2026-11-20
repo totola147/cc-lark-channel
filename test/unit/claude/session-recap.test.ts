@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { buildRecap } from "../../../src/claude/session-recap.ts";
+import { encodeProjectDir } from "../../../src/claude/project-dir.ts";
 
 /**
  * buildRecap reads ~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl.
@@ -14,7 +15,7 @@ describe("buildRecap", () => {
   let projDir: string;
   const sid = "test-session-recap";
 
-  function encode(p: string) { return p.replace(/\//g, "-"); }
+  const encode = encodeProjectDir;
 
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "recap-cwd-"));

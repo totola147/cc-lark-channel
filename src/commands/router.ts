@@ -1,6 +1,7 @@
 import type { LarkClient } from "../lark/client.js";
 import type { SessionManager } from "../claude/session-manager.js";
 import type { WorkspaceManager } from "../workspace/manager.js";
+import { locateSession } from "../claude/project-dir.js";
 import type { AppConfig } from "../config.js";
 import type { IncomingMessage } from "../types.js";
 import { normalizePermissionMode, PERMISSION_MODES } from "../types.js";
@@ -207,19 +208,10 @@ export class CommandRouter {
         const sessionId = parts[0]!;
         let attachCwd = parts[1]?.replace(/^["']|["']$/g, "");
 
-        // Auto-detect cwd from Claude's session storage if not provided
+        // Auto-detect cwd from Claude's session storage if not provided.
+        // 目录名编码有损（路径里的 - 会被误还原成 /），所以从 jsonl 记录读真实 cwd。
         if (!attachCwd) {
-          const { readdirSync, existsSync } = await import("node:fs");
-          const { homedir } = await import("node:os");
-          const projectsDir = `${homedir()}/.claude/projects`;
-          if (existsSync(projectsDir)) {
-            for (const dir of readdirSync(projectsDir)) {
-              if (existsSync(`${projectsDir}/${dir}/${sessionId}.jsonl`)) {
-                attachCwd = dir.replace(/^-/, "/").replace(/-/g, "/");
-                break;
-              }
-            }
-          }
+          attachCwd = locateSession(sessionId)?.cwd;
         }
 
         // Background current session if it has work, then create new session for attach

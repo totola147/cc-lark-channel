@@ -2,8 +2,8 @@ import type { Logger } from "../util/logger.js";
 import type { LarkClient } from "../lark/client.js";
 import type { StateStore } from "../persistence/store.js";
 import { getProjectInfo } from "./project-info.js";
-import { existsSync, readdirSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { readdirSync, statSync } from "node:fs";
+import { resolveProjectDir } from "../claude/project-dir.js";
 
 export interface WorkspaceRecord {
   chatId: string;
@@ -157,10 +157,8 @@ export class WorkspaceManager {
   }
 
   getLatestSessionId(path: string): string | undefined {
-    const projectsDir = `${homedir()}/.claude/projects`;
-    const encoded = path.replace(/\//g, "-");
-    const dir = `${projectsDir}/${encoded}`;
-    if (!existsSync(dir)) return undefined;
+    const dir = resolveProjectDir(path);
+    if (!dir) return undefined;
 
     try {
       const files = readdirSync(dir).filter(f => f.endsWith(".jsonl"));
