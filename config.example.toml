@@ -15,6 +15,7 @@ default_model = ""               # empty = use CLI default
 default_cwd = "/workspace"
 permission_mode = "default"      # "default" | "acceptEdits" | "bypassPermissions"
 permission_timeout_seconds = 120
+question_timeout_seconds = 600   # 提问卡片无人作答的超时，0 = 不超时
 max_queue_size = 5
 
 [render]

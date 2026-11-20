@@ -109,6 +109,25 @@ function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max) + "…" : text;
 }
 
+export function buildQuestionTimedOutCard(args: {
+  header?: string;
+  question: string;
+  seconds: number;
+}): FeishuCardV2 {
+  const title = args.header ? esc(args.header) : "Question";
+  return {
+    schema: "2.0",
+    config: { update_multi: true },
+    body: {
+      elements: [
+        { tag: "markdown", content: `⏰ **${esc(title)}**` },
+        { tag: "markdown", content: `${esc(args.question)}` },
+        { tag: "markdown", content: `<font color="grey">${args.seconds} 秒内未作答，已跳过</font>` },
+      ],
+    },
+  };
+}
+
 function esc(text: string): string {
   return text.replace(/[*_`~[\]]/g, "\\$&");
 }

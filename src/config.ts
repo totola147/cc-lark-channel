@@ -29,6 +29,8 @@ const ClaudeSchema = z.object({
     .default("default")
     .transform((m): PermissionMode => (m === "manual" ? "default" : m)),
   permission_timeout_seconds: z.number().int().positive().optional().default(120),
+  /** AskUserQuestion 卡片无人作答的超时（秒），0 表示不超时。 */
+  question_timeout_seconds: z.number().int().nonnegative().optional().default(600),
   max_queue_size: z.number().int().positive().optional().default(5),
 }).optional().default({
   cli_path: "claude",
@@ -36,6 +38,7 @@ const ClaudeSchema = z.object({
   default_cwd: process.cwd(),
   permission_mode: "default" as const,
   permission_timeout_seconds: 120,
+  question_timeout_seconds: 600,
   max_queue_size: 5,
 });
 

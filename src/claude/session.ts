@@ -1,6 +1,6 @@
 import type { Logger } from "../util/logger.js";
 import type { LarkClient } from "../lark/client.js";
-import type { PermissionBroker } from "./permission-broker.js";
+import type { PermissionBroker, SessionPermissions } from "./permission-broker.js";
 import type { AppConfig } from "../config.js";
 import type { RenderEvent, SessionState, PermissionMode } from "../types.js";
 import { createQuery, type QueryHandle } from "./query.js";
@@ -19,6 +19,7 @@ const RESUME_FAILURE_PATTERNS = ["No conversation found", "failed to launch"];
 interface QueuedInput {
   text: string;
   imageDataUris?: string[];
+  senderOpenId?: string;
   deferred: Deferred<void>;
 }
 
@@ -45,6 +46,9 @@ export class ClaudeSession {
    * 就不再改动会话状态（state/currentHandle/状态卡片/出队）。
    */
   private generation = 0;
+  /** 本会话独立的审批作用域：本轮/本会话允许、取消都只影响自己。 */
+  private readonly perms: SessionPermissions;
+  private readonly permScopeId = crypto.randomUUID();
 
   constructor(
     private readonly chatId: string,
@@ -57,6 +61,12 @@ export class ClaudeSession {
     public model: string,
   ) {
     this.id = crypto.randomUUID().slice(0, 8);
+    this.perms = broker.forSession(this.permScopeId);
+  }
+
+  /** 会话被丢弃时释放其审批作用域（挂起的卡片按拒绝处理）。 */
+  dispose(): void {
+    this.broker.disposeScope(this.permScopeId);
   }
 
   getState(): SessionState {
@@ -75,9 +85,13 @@ export class ClaudeSession {
     };
   }
 
-  async submit(text: string, imageDataUris?: string[]): Promise<{ kind: "started" | "queued" | "rejected"; position?: number }> {
+  async submit(
+    text: string,
+    imageDataUris?: string[],
+    senderOpenId?: string,
+  ): Promise<{ kind: "started" | "queued" | "rejected"; position?: number }> {
     if (this.state === "idle") {
-      this.runTurn(text, imageDataUris);
+      this.runTurn(text, imageDataUris, senderOpenId);
       return { kind: "started" };
     }
 
@@ -86,12 +100,12 @@ export class ClaudeSession {
     }
 
     const deferred = createDeferred<void>();
-    this.queue.push({ text, imageDataUris, deferred });
+    this.queue.push({ text, imageDataUris, senderOpenId, deferred });
     const position = this.queue.length;
     return { kind: "queued", position };
   }
 
-  async interrupt(newText?: string): Promise<void> {
+  async interrupt(newText?: string, senderOpenId?: string): Promise<void> {
     // 先让正在跑的轮次失效，它在 abort 之后到达的事件和 finally 都会被忽略。
     this.generation++;
     const handle = this.currentHandle;
@@ -102,7 +116,7 @@ export class ClaudeSession {
       const sid = handle.events.sessionId;
       if (sid) this.providerSessionId = sid;
     }
-    this.broker.cancelAll();
+    this.perms.cancelAll();
     this.state = "idle";
 
     // Flush queue — all queued inputs are dropped
@@ -116,7 +130,7 @@ export class ClaudeSession {
     await this.finalizeCard();
 
     if (newText) {
-      this.runTurn(newText);
+      this.runTurn(newText, undefined, senderOpenId);
     }
   }
 
@@ -125,12 +139,13 @@ export class ClaudeSession {
     await this.larkClient.sendText(this.chatId, "⏹ Stopped");
   }
 
-  private async runTurn(text: string, imageDataUris?: string[]): Promise<void> {
+  private async runTurn(text: string, imageDataUris?: string[], senderOpenId?: string): Promise<void> {
     const gen = ++this.generation;
     const isCurrent = () => gen === this.generation;
     this.state = "generating";
     this.turnCount++;
-    this.broker.resetTurn();
+    this.perms.resetTurn();
+    if (senderOpenId) this.perms.setRequester(senderOpenId);
     this.cardState = this.freshCardState();
     this.statusCardId = null;
 
@@ -146,7 +161,7 @@ export class ClaudeSession {
         thinkingDisplay: this.config.render.hide_thinking ? undefined : "summarized",
       },
       this.chatId,
-      this.broker,
+      this.perms,
       this.logger,
     );
     this.currentHandle = handle;
@@ -205,7 +220,7 @@ export class ClaudeSession {
             .sendText(this.chatId, `⚠️ Claude 启动超时（${seconds} 秒无响应），正在用新会话重试。原对话历史不会带入。`)
             .catch(() => {});
           // runTurn 同步递增 generation，本轮 finally 随之失效
-          if (isCurrent()) this.runTurn(text, imageDataUris);
+          if (isCurrent()) this.runTurn(text, imageDataUris, senderOpenId);
           return;
         }
         // 新会话已无可回退：报错而不是重试进同一个失败
@@ -234,7 +249,7 @@ export class ClaudeSession {
         await this.larkClient
           .sendText(this.chatId, "⚠️ 无法恢复之前的会话，已改用新会话继续。原对话历史不会带入。")
           .catch(() => {});
-        if (isCurrent()) this.runTurn(text, imageDataUris);
+        if (isCurrent()) this.runTurn(text, imageDataUris, senderOpenId);
         return;
       }
       this.logger.error({ err }, "Turn execution error");
@@ -343,7 +358,7 @@ export class ClaudeSession {
   private dequeueNext(): void {
     const next = this.queue.shift();
     if (next) {
-      this.runTurn(next.text, next.imageDataUris).then(
+      this.runTurn(next.text, next.imageDataUris, next.senderOpenId).then(
         () => next.deferred.resolve(),
         (err) => next.deferred.reject(err),
       );

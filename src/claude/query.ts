@@ -1,7 +1,7 @@
 import { query, type PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import type { Logger } from "../util/logger.js";
 import type { RenderEvent, PermissionMode } from "../types.js";
-import type { PermissionBroker } from "./permission-broker.js";
+import type { SessionPermissions } from "./permission-broker.js";
 import type { QuestionSpec } from "../lark/cards/question-card.js";
 import { parseImageDataUri } from "../util/image-mime.js";
 
@@ -33,7 +33,7 @@ export interface QueryHandle {
 export function createQuery(
   opts: QueryOptions,
   chatId: string,
-  broker: PermissionBroker,
+  broker: Pick<SessionPermissions, "requestPermission" | "askQuestions">,
   logger: Logger,
 ): QueryHandle {
   const abort = new AbortController();

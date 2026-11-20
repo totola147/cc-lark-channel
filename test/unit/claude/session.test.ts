@@ -44,11 +44,19 @@ function mockLark(): LarkClient {
 }
 
 function mockBroker(): PermissionBroker {
-  return {
+  // forSession 返回同一个作用域对象，便于断言
+  const scope = {
     resetTurn: vi.fn(),
     resetSession: vi.fn(),
     cancelAll: vi.fn(),
+    setRequester: vi.fn(),
     requestPermission: vi.fn().mockResolvedValue(true),
+    askQuestions: vi.fn().mockResolvedValue({}),
+  };
+  return {
+    ...scope,
+    forSession: vi.fn(() => scope),
+    disposeScope: vi.fn(),
   } as unknown as PermissionBroker;
 }
 
@@ -161,6 +169,27 @@ describe("ClaudeSession", () => {
     expect(broker.cancelAll).toHaveBeenCalled();
     // The queued promise rejects on interrupt — suppress unhandled rejection
     await expect(queued).resolves.toBeDefined();
+  });
+
+  it("uses its own permission scope, records the requester, and disposes it", async () => {
+    const events = async function* () {
+      yield { type: "turn_end" as const, durationMs: 1, inputTokens: 0, outputTokens: 0 };
+    };
+    vi.mocked(createQuery).mockReturnValue({
+      events: Object.assign(events(), { sessionId: undefined }),
+      interrupt: vi.fn(),
+    });
+    const scope = (broker as unknown as { forSession: ReturnType<typeof vi.fn> }).forSession;
+    expect(scope).toHaveBeenCalledTimes(1);
+    const scopeId = scope.mock.calls[0]![0];
+
+    await session.submit("hi", undefined, "ou_alice");
+    expect((broker as unknown as { setRequester: ReturnType<typeof vi.fn> }).setRequester).toHaveBeenCalledWith("ou_alice");
+    // 传给 createQuery 的是会话作用域而不是全局 broker
+    expect(vi.mocked(createQuery).mock.calls.at(-1)![2]).toBe(scope.mock.results[0]!.value);
+
+    session.dispose();
+    expect((broker as unknown as { disposeScope: ReturnType<typeof vi.fn> }).disposeScope).toHaveBeenCalledWith(scopeId);
   });
 
   it("stop sends confirmation message", async () => {

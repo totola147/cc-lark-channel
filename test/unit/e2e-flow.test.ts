@@ -200,6 +200,36 @@ describe("E2E: Full message flow", () => {
     expect(again.createdAt).toBe(createdAt);
   });
 
+  it("/new only cancels the old foreground's approvals, not background sessions", async () => {
+    // 每个会话的 query 都去申请一次权限，并挂着等结果
+    const results = new Map<string, Promise<boolean>>();
+    vi.mocked(createQuery).mockImplementation((opts, chatId, perms) => {
+      const p = perms.requestPermission(chatId, "Bash", { command: opts.prompt });
+      results.set(opts.prompt, p);
+      const events = async function* () {
+        await p;
+        yield { type: "turn_end" as const, durationMs: 1, inputTokens: 0, outputTokens: 0 };
+      };
+      return { events: Object.assign(events(), { sessionId: undefined }), interrupt: vi.fn() };
+    });
+
+    await manager.handleMessage(mockMsg("bg-work"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(manager.backgroundSession("chat-1", "bg")).not.toBeNull();
+    await manager.handleMessage(mockMsg("fg-work"));
+    await new Promise((r) => setTimeout(r, 20));
+
+    await manager.newSession("chat-1");
+    // 旧前台的审批被拒绝
+    expect(await results.get("fg-work")).toBe(false);
+    // 后台会话的审批仍在等待
+    let settled = false;
+    void results.get("bg-work")!.then(() => { settled = true; });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(settled).toBe(false);
+    broker.cancelAll();
+  });
+
   it("permission broker integrates with card actions", async () => {
     // Simulate a tool use that triggers permission
     let permissionPromise: Promise<boolean> | undefined;

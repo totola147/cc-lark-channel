@@ -40,7 +40,12 @@ async function main() {
   await stateStore.load();
 
   const larkClient = new LarkClient(config.lark, logger);
-  const permissionBroker = new PermissionBroker(config.claude, larkClient, logger);
+  // 审批/提问卡片只允许 allowed_open_ids 中的人操作；为空时由 broker 退回到
+  // "只有发起本轮的人"。
+  const approverIds = config.access.allowed_open_ids;
+  const permissionBroker = new PermissionBroker(config.claude, larkClient, logger, {
+    approvers: () => approverIds,
+  });
   const sessionManager = new SessionManager(config, stateStore, permissionBroker, larkClient, logger);
   const workspaceManager = new WorkspaceManager(larkClient, stateStore, logger);
 

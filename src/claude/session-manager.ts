@@ -80,7 +80,7 @@ export class SessionManager {
 
     if (msg.text.startsWith("!")) {
       const newText = msg.text.slice(1).trim();
-      await session.interrupt(newText || undefined);
+      await session.interrupt(newText || undefined, msg.senderOpenId);
       return;
     }
 
@@ -105,7 +105,7 @@ export class SessionManager {
     const prompt = msg.text || (imageDataUris?.length ? "Please analyze this image." : "");
     if (!prompt && !imageDataUris?.length) return;
 
-    const result = await session.submit(prompt, imageDataUris);
+    const result = await session.submit(prompt, imageDataUris, msg.senderOpenId);
 
     if (result.kind === "queued") {
       await this.larkClient.sendText(msg.chatId, `📋 Queued (position ${result.position})`);
@@ -125,9 +125,9 @@ export class SessionManager {
     const old = chat?.sessions.get(chat.foregroundId);
     if (old) {
       await old.interrupt();
+      old.dispose();
       chat!.sessions.delete(old.id);
     }
-    this.broker.resetSession();
 
     const session = this.createFreshSession(chatId);
     if (chat) {
@@ -180,6 +180,7 @@ export class SessionManager {
 
     chat.sessions.delete(target.id);
     await target.interrupt();
+    target.dispose();
     this.persistChat(chatId);
     return true;
   }
@@ -189,7 +190,10 @@ export class SessionManager {
     if (!chat) return 0;
     const victims = [...chat.sessions.values()];
     chat.sessions.clear();
-    await Promise.all(victims.map((session) => session.interrupt()));
+    await Promise.all(victims.map(async (session) => {
+      await session.interrupt();
+      session.dispose();
+    }));
     const count = victims.length;
     const fresh = this.createFreshSession(chatId);
     chat.sessions.set(fresh.id, fresh);
