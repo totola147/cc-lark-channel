@@ -120,6 +120,7 @@ export class ClaudeSession {
         permissionMode: this.permissionMode,
         cliPath: this.config.claude.cli_path,
         resumeId: this.providerSessionId,
+        thinkingDisplay: this.config.render.hide_thinking ? undefined : "summarized",
       },
       this.chatId,
       this.broker,

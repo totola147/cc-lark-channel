@@ -12,6 +12,11 @@ export interface QueryOptions {
   permissionMode: PermissionMode;
   cliPath: string;
   resumeId?: string;
+  /**
+   * 新版 CLI 默认不回传 thinking 正文（只给签名）。传 "summarized" 让 CLI 返回
+   * 摘要文本，状态卡片才能显示思考过程。只设置 display，不改 thinking 类型。
+   */
+  thinkingDisplay?: "summarized" | "omitted";
 }
 
 export interface QueryHandle {
@@ -43,38 +48,60 @@ export function createQuery(
     promptInput = opts.prompt;
   }
 
+  // 终端以 --dangerously-skip-permissions 启动、或配置/`/mode` 设为 bypassPermissions 时，
+  // 不把 bypassPermissions 传给 SDK：该模式下 SDK 自动放行所有工具、不再调用
+  // canUseTool，AskUserQuestion 也就不会被拦截成飞书提问卡片。改为保留
+  // canUseTool，在这里自动放行普通工具，提问卡片照常弹出。
+  const bypass = opts.permissionMode === "bypassPermissions";
+
+  const canUseTool = async (
+    toolName: string,
+    input: Record<string, unknown>,
+  ): Promise<PermissionResult> => {
+    if (toolName === "AskUserQuestion") {
+      const questions = normalizeQuestions(input);
+      if (!questions.length) {
+        // 输入格式不对：原样放行。
+        // 注意：allow 必须带 updatedInput。新版 CLI 用 Zod 校验 canUseTool 的返回，
+        // allow 分支要求 updatedInput 是 record；缺了会抛 ZodError
+        // （"expected record, received undefined"），表现为
+        // "Tool permission request failed"，而不是普通的拒绝。
+        return { behavior: "allow", updatedInput: input };
+      }
+      const answers = await broker.askQuestions(chatId, questions);
+      if (answers === null) {
+        return { behavior: "deny", message: "User did not answer (interrupted)" };
+      }
+      // CLI 从 updatedInput 的 answers（问题文本 -> 答案）合成工具结果。
+      return { behavior: "allow", updatedInput: { ...input, answers } };
+    }
+
+    // bypassPermissions：用户选择跳过所有权限确认。
+    if (bypass) {
+      return { behavior: "allow", updatedInput: input };
+    }
+
+    const allowed = await broker.requestPermission(chatId, toolName, input);
+    if (allowed) {
+      return { behavior: "allow", updatedInput: input };
+    }
+    return { behavior: "deny", message: "User denied permission" };
+  };
+
   const q = query({
     prompt: promptInput as Parameters<typeof query>[0]["prompt"],
     options: {
       cwd: opts.cwd,
       model: opts.model || undefined,
-      permissionMode: opts.permissionMode,
+      // bypassPermissions 映射为 default，让 SDK 继续调用 canUseTool（AskUserQuestion 需要），
+      // 真正的放行由上面的自动 allow 完成。
+      permissionMode: bypass ? "default" : opts.permissionMode,
       pathToClaudeCodeExecutable: opts.cliPath,
       abortController: abort,
       env: { ...process.env },
       ...(opts.resumeId ? { resume: opts.resumeId } : {}),
-      canUseTool: async (toolName: string, input: Record<string, unknown>): Promise<PermissionResult> => {
-        if (toolName === "AskUserQuestion") {
-          const questions = normalizeQuestions(input);
-          if (!questions.length) {
-            // Malformed input — fall back to allowing the tool untouched.
-            return { behavior: "allow" };
-          }
-          const answers = await broker.askQuestions(chatId, questions);
-          if (answers === null) {
-            return { behavior: "deny", message: "User did not answer (interrupted)" };
-          }
-          // The CLI reads `answers` (question text -> answer string) from the
-          // updated input and synthesizes the tool result from it.
-          return { behavior: "allow", updatedInput: { ...input, answers } };
-        }
-
-        const allowed = await broker.requestPermission(chatId, toolName, input);
-        if (allowed) {
-          return { behavior: "allow" };
-        }
-        return { behavior: "deny", message: "User denied permission" };
-      },
+      ...(opts.thinkingDisplay ? { extraArgs: { "thinking-display": opts.thinkingDisplay } } : {}),
+      canUseTool,
     },
   });
 
@@ -87,6 +114,19 @@ export function createQuery(
 
       try {
         for await (const msg of q as AsyncIterable<SDKMessage>) {
+          // 工具结果在 SDK 里是 user 消息（tool_result 块），不在 assistant 消息里。
+          if (msg.type === "user" && Array.isArray(msg.message?.content)) {
+            for (const block of msg.message.content) {
+              if (block.type === "tool_result") {
+                yield {
+                  type: "tool_result" as const,
+                  toolUseId: block.tool_use_id ?? "",
+                  isError: !!block.is_error,
+                  text: toolResultText(block.content),
+                };
+              }
+            }
+          }
           if (msg.type === "assistant" && msg.message?.content) {
             for (const block of msg.message.content) {
               if (block.type === "text" && block.text) {
@@ -98,11 +138,13 @@ export function createQuery(
               if (block.type === "tool_use") {
                 yield { type: "tool_use" as const, id: block.id ?? "", name: block.name ?? "", input: block.input };
               }
-              if (block.type === "tool_result") {
-                const text = typeof block.content === "string" ? block.content : JSON.stringify(block.content);
-                yield { type: "tool_result" as const, toolUseId: block.tool_use_id ?? "", isError: !!block.is_error, text };
-              }
             }
+          }
+          if (msg.type === "system" && msg.subtype === "init") {
+            // 尽早记下会话 id：轮次被中断时（拿不到 result）也能继续 resume。
+            if (msg.session_id) events.sessionId = msg.session_id;
+            // 告知调用方 CLI 已启动，用来区分「CLI 没起来/resume 失败」和「首个 token 慢」。
+            yield { type: "init" as const, model: msg.model };
           }
           if (msg.type === "result") {
             inputTokens = msg.usage?.input_tokens ?? 0;
@@ -120,6 +162,9 @@ export function createQuery(
         throw err;
       }
 
+      // 被中断的轮次没有完成，不发 turn_end，免得调用方当成正常结束。
+      if (aborted) return;
+
       yield {
         type: "turn_end" as const,
         durationMs: Date.now() - startTime,
@@ -136,6 +181,16 @@ export function createQuery(
   };
 
   return { events, interrupt };
+}
+
+/** tool_result 的 content 可能是字符串或内容块数组，取出其中的文本。 */
+function toolResultText(content: SDKContentBlock["content"]): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((c) => (c && typeof c === "object" && (c as { type?: string }).type === "text" ? String((c as { text?: unknown }).text ?? "") : ""))
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** Coerce raw AskUserQuestion tool input into validated QuestionSpec[]. */
@@ -169,6 +224,9 @@ function normalizeQuestions(input: Record<string, unknown>): QuestionSpec[] {
 
 interface SDKMessage {
   type: string;
+  subtype?: string;
+  /** system/init 消息上的实际模型名。 */
+  model?: string;
   message?: { content?: readonly SDKContentBlock[] };
   usage?: { input_tokens?: number; output_tokens?: number };
   session_id?: string;

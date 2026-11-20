@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getLiveSessionOwner } from "../../../src/claude/session-registry.ts";
@@ -65,5 +65,53 @@ describe("getLiveSessionOwner", () => {
       isAlive: (pid) => pid === 556,
     });
     expect(owner?.pid).toBe(556);
+  });
+
+  function writeRaw(pid: number, extra: Record<string, unknown>) {
+    writeFileSync(
+      join(dir, `${pid}.json`),
+      JSON.stringify({ pid, sessionId: "target", cwd: "/proj", status: "busy", ...extra }),
+    );
+  }
+
+  it("ignores SDK-spawned sessions (A5)", () => {
+    writeRaw(600, { kind: "sdk" });
+    expect(getLiveSessionOwner("target", { sessionsDir: dir, isAlive: () => true })).toBeNull();
+  });
+
+  it("treats interactive markers as owners", () => {
+    writeRaw(601, { kind: "interactive", procStart: "123" });
+    const owner = getLiveSessionOwner("target", {
+      sessionsDir: dir,
+      isAlive: () => true,
+      procStart: () => "123",
+    });
+    expect(owner?.pid).toBe(601);
+  });
+
+  it("ignores a marker whose pid was reused by another process (A5)", () => {
+    writeRaw(602, { kind: "interactive", procStart: "123" });
+    expect(
+      getLiveSessionOwner("target", { sessionsDir: dir, isAlive: () => true, procStart: () => "999" }),
+    ).toBeNull();
+  });
+
+  it("keeps the marker when the start time cannot be read", () => {
+    writeRaw(603, { kind: "interactive", procStart: "123" });
+    const owner = getLiveSessionOwner("target", {
+      sessionsDir: dir,
+      isAlive: () => true,
+      procStart: () => undefined,
+    });
+    expect(owner?.pid).toBe(603);
+  });
+
+  it("reads the real /proc start time for the current process", () => {
+    const real = readFileSync(`/proc/${process.pid}/stat`, "utf-8");
+    const start = real.slice(real.lastIndexOf(")") + 2).split(" ")[19]!;
+    writeRaw(process.pid, { kind: "interactive", procStart: start });
+    expect(getLiveSessionOwner("target", { sessionsDir: dir })?.pid).toBe(process.pid);
+    writeRaw(process.pid, { kind: "interactive", procStart: "1" });
+    expect(getLiveSessionOwner("target", { sessionsDir: dir })).toBeNull();
   });
 });

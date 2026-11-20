@@ -2,7 +2,8 @@ import type { LarkClient } from "../lark/client.js";
 import type { SessionManager } from "../claude/session-manager.js";
 import type { WorkspaceManager } from "../workspace/manager.js";
 import type { AppConfig } from "../config.js";
-import type { IncomingMessage, PermissionMode } from "../types.js";
+import type { IncomingMessage } from "../types.js";
+import { normalizePermissionMode, PERMISSION_MODES } from "../types.js";
 import type { Logger } from "../util/logger.js";
 import { getLiveSessionOwner } from "../claude/session-registry.js";
 
@@ -161,14 +162,14 @@ export class CommandRouter {
       }
 
       case "/mode": {
-        const validModes: PermissionMode[] = ["default", "acceptEdits", "bypassPermissions"];
-        if (!cmd.args || !validModes.includes(cmd.args as PermissionMode)) {
-          await this.larkClient.sendText(chatId, `Usage: /mode <${validModes.join("|")}>`);
+        const mode = normalizePermissionMode(cmd.args.trim());
+        if (!mode) {
+          await this.larkClient.sendText(chatId, `Usage: /mode <${PERMISSION_MODES.join("|")}>`);
           break;
         }
         const session = this.sessionManager.getOrCreateSession(chatId);
-        session.permissionMode = cmd.args as PermissionMode;
-        await this.larkClient.sendText(chatId, `Permission mode: ${cmd.args}`);
+        session.permissionMode = mode;
+        await this.larkClient.sendText(chatId, `Permission mode: ${mode}`);
         break;
       }
 

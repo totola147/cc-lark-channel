@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "smol-toml";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import type { PermissionMode } from "./types.js";
 
 const LarkSchema = z.object({
   app_id: z.string().min(1, "lark.app_id is required"),
@@ -21,7 +22,12 @@ const ClaudeSchema = z.object({
   cli_path: z.string().optional().default("claude"),
   default_model: z.string().optional().default(""),
   default_cwd: z.string().optional().default(process.cwd()),
-  permission_mode: z.enum(["default", "acceptEdits", "bypassPermissions"]).optional().default("default"),
+  // "manual" 是 CLI 对 default 的别名，读入时归一化
+  permission_mode: z
+    .enum(["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk", "auto", "manual"])
+    .optional()
+    .default("default")
+    .transform((m): PermissionMode => (m === "manual" ? "default" : m)),
   permission_timeout_seconds: z.number().int().positive().optional().default(120),
   max_queue_size: z.number().int().positive().optional().default(5),
 }).optional().default({
