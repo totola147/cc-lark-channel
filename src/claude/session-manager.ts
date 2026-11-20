@@ -5,6 +5,7 @@ import type { AppConfig } from "../config.js";
 import type { IncomingMessage, PermissionMode } from "../types.js";
 import type { StateStore, SessionRecord } from "../persistence/store.js";
 import { ClaudeSession } from "./session.js";
+import { detectImageMime } from "../util/image-mime.js";
 
 interface ChatState {
   foregroundId: string;
@@ -89,8 +90,12 @@ export class SessionManager {
       for (const key of msg.imageKeys) {
         try {
           const buf = await this.larkClient.downloadImage(msg.messageId, key);
-          const base64 = buf.toString("base64");
-          imageDataUris.push(`data:image/png;base64,${base64}`);
+          const mime = detectImageMime(buf);
+          if (!mime) {
+            this.logger.warn({ imageKey: key }, "Unsupported image format, skipping");
+            continue;
+          }
+          imageDataUris.push(`data:${mime};base64,${buf.toString("base64")}`);
         } catch (err) {
           this.logger.warn({ err, imageKey: key }, "Failed to download image");
         }

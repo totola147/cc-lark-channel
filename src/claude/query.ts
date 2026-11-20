@@ -3,6 +3,7 @@ import type { Logger } from "../util/logger.js";
 import type { RenderEvent, PermissionMode } from "../types.js";
 import type { PermissionBroker } from "./permission-broker.js";
 import type { QuestionSpec } from "../lark/cards/question-card.js";
+import { parseImageDataUri } from "../util/image-mime.js";
 
 export interface QueryOptions {
   prompt: string;
@@ -39,8 +40,8 @@ export function createQuery(
     const content: unknown[] = [];
     if (opts.prompt) content.push({ type: "text", text: opts.prompt });
     for (const uri of opts.imageDataUris) {
-      const data = uri.replace(/^data:image\/\w+;base64,/, "");
-      content.push({ type: "image", source: { type: "base64", media_type: "image/png", data } });
+      const { mediaType, data } = parseImageDataUri(uri);
+      content.push({ type: "image", source: { type: "base64", media_type: mediaType, data } });
     }
     const msg = { type: "user" as const, message: { role: "user" as const, content }, parent_tool_use_id: null };
     promptInput = (async function* () { yield msg; })();

@@ -50,6 +50,18 @@ describe("createQuery", () => {
     expect(h.events.sessionId).toBe("s1");
   });
 
+  it("passes the image media type through", async () => {
+    script = [{ type: "result", usage: {} }];
+    const h = createQuery({ ...base, imageDataUris: ["data:image/jpeg;base64,AAAA"] }, "c1", broker, logger);
+    await collect(h.events);
+    const prompt = calls[0]!.prompt as AsyncIterable<{ message: { content: Array<Record<string, unknown>> } }>;
+    const msgs = await collect(prompt);
+    const img = (msgs[0] as { message: { content: Array<{ type: string; source?: { media_type: string } }> } }).message.content.find(
+      (c) => c.type === "image",
+    );
+    expect(img?.source?.media_type).toBe("image/jpeg");
+  });
+
   it("emits init and records the session id before result", async () => {
     script = [{ type: "system", subtype: "init", session_id: "s-init", model: "m1" }];
     const h = createQuery(base, "c1", broker, logger);
