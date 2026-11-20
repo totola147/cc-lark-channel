@@ -158,7 +158,11 @@ export class SessionManager {
 
     if (name) bgSession.name = name;
 
-    const fgSession = this.createSession(chatId);
+    // 必须是全新会话：createSession 读的是 chat 的存档，此时 foregroundId 还没切换，
+    // 读到的正是要移到后台的那个会话，新前台会继承同一个 providerSessionId，
+    // 两个会话 resume 并写入同一份 jsonl 历史。只沿用工作目录。
+    const fgSession = this.createFreshSession(chatId);
+    fgSession.cwd = bgSession.cwd;
     chat.sessions.set(fgSession.id, fgSession);
     chat.foregroundId = fgSession.id;
 

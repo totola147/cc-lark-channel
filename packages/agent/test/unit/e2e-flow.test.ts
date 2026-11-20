@@ -226,6 +226,28 @@ describe("E2E: Full message flow", () => {
     expect(again.createdAt).toBe(createdAt);
   });
 
+  it("/bg gives the new foreground a fresh session id, keeping only cwd", async () => {
+    const events = async function* () {
+      yield { type: "turn_end" as const, durationMs: 1, inputTokens: 0, outputTokens: 0 };
+    };
+    vi.mocked(createQuery).mockImplementation(() => ({
+      events: Object.assign(events(), { sessionId: "sess-orig" }),
+      interrupt: vi.fn(),
+    }));
+    await manager.handleMessage(mockMsg("hi"));
+    await new Promise((r) => setTimeout(r, 50));
+    const orig = manager.getSession("chat-1")!;
+    expect(orig.providerSessionId).toBe("sess-orig");
+    orig.cwd = "/proj";
+
+    const res = manager.backgroundSession("chat-1", "bg1")!;
+    expect(res.bgSession.providerSessionId).toBe("sess-orig");
+    // 以前新前台从存档继承了同一个 providerSessionId，两个会话写同一份历史
+    expect(res.fgSession.providerSessionId).toBeUndefined();
+    expect(res.fgSession.cwd).toBe("/proj");
+    expect(manager.getSession("chat-1")).toBe(res.fgSession);
+  });
+
   it("permission broker integrates with card actions", async () => {
     // Simulate a tool use that triggers permission
     let permissionPromise: Promise<boolean> | undefined;
