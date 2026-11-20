@@ -62,6 +62,44 @@ describe("createQuery", () => {
     expect(img?.source?.media_type).toBe("image/jpeg");
   });
 
+  it("keeps the input stream open while background tasks run, closes after they finish", async () => {
+    script = [
+      { type: "system", subtype: "task_started", task_id: "a1" },
+      { type: "result", usage: {} },
+      "WAIT",
+      { type: "system", subtype: "task_notification", task_id: "a1", status: "completed" },
+      { type: "result", usage: {} },
+    ];
+    const h = createQuery(base, "c1", broker, logger);
+    const prompt = calls[0]!.prompt as AsyncIterable<unknown>;
+    const it = prompt[Symbol.asyncIterator]();
+    await it.next(); // 用户消息
+    let closed = false;
+    void it.next().then(() => { closed = true; });
+    const run = collect(h.events);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(closed).toBe(false); // result 已到但后台任务未结束
+    await run;
+    await new Promise((r) => setTimeout(r, 20));
+    expect(closed).toBe(true);
+  });
+
+  it("closes the input stream right after result when no background task", async () => {
+    script = [{ type: "result", usage: {} }];
+    const h = createQuery(base, "c1", broker, logger);
+    const it = (calls[0]!.prompt as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+    await it.next();
+    const second = it.next();
+    await collect(h.events);
+    expect((await second).done).toBe(true);
+  });
+
+  it("uses a generator prompt even for text-only input", async () => {
+    script = [{ type: "result", usage: {} }];
+    await collect(createQuery(base, "c1", broker, logger).events);
+    expect(typeof calls[0]!.prompt).not.toBe("string");
+  });
+
   it("emits init and records the session id before result", async () => {
     script = [{ type: "system", subtype: "init", session_id: "s-init", model: "m1" }];
     const h = createQuery(base, "c1", broker, logger);

@@ -5,6 +5,11 @@ import type { PermissionBroker } from "./permission-broker.js";
 import type { QuestionSpec } from "../lark/cards/question-card.js";
 import { parseImageDataUri } from "../util/image-mime.js";
 
+/** 任务全部结束后，等 CLI 是否又起新一轮的宽限。 */
+const BACKGROUND_GRACE_MS = 3000;
+/** 出 result 后仍有后台任务时，最长等待时间。 */
+const BACKGROUND_MAX_WAIT_MS = 30 * 60 * 1000;
+
 export interface QueryOptions {
   prompt: string;
   imageDataUris?: string[];
@@ -34,20 +39,48 @@ export function createQuery(
   const abort = new AbortController();
   let aborted = false;
 
-  // Build prompt: string for text-only, AsyncIterable<SDKUserMessage> for multimodal
-  let promptInput: string | AsyncIterable<{ type: "user"; message: { role: "user"; content: unknown[] }; parent_tool_use_id: null }>;
-  if (opts.imageDataUris?.length) {
-    const content: unknown[] = [];
-    if (opts.prompt) content.push({ type: "text", text: opts.prompt });
-    for (const uri of opts.imageDataUris) {
-      const { mediaType, data } = parseImageDataUri(uri);
-      content.push({ type: "image", source: { type: "base64", media_type: mediaType, data } });
-    }
-    const msg = { type: "user" as const, message: { role: "user" as const, content }, parent_tool_use_id: null };
-    promptInput = (async function* () { yield msg; })();
-  } else {
-    promptInput = opts.prompt;
+  // 输入流必须保持打开，直到本轮的后台任务（run_in_background 的 agent/命令）
+  // 全部结束。SDK 对字符串 prompt 当作单轮查询：第一个 result 一到就关闭 CLI
+  // 的 stdin，而权限确认（canUseTool）走的正是这条通道。后台任务完成后 CLI 会被
+  // task-notification 唤醒开启新一轮，此时通道已关，所有需要确认的工具调用都会
+  // 报 "Tool permission request failed: AbortError: Stream closed"。
+  // 因此一律用 async generator 作为 prompt，由 closeInput() 决定何时放手。
+  let closeInput!: () => void;
+  const inputClosed = new Promise<void>((resolve) => { closeInput = resolve; });
+  const content: unknown[] = [];
+  if (opts.prompt) content.push({ type: "text", text: opts.prompt });
+  for (const uri of opts.imageDataUris ?? []) {
+    const { mediaType, data } = parseImageDataUri(uri);
+    content.push({ type: "image", source: { type: "base64", media_type: mediaType, data } });
   }
+  const userMsg = { type: "user" as const, message: { role: "user" as const, content }, parent_tool_use_id: null };
+  const promptInput = (async function* () {
+    yield userMsg;
+    await inputClosed;
+  })();
+
+  // 后台任务跟踪：只有「已出 result、没有运行中的任务、CLI 空闲」才关输入。
+  const runningTasks = new Set<string>();
+  let sawResult = false;
+  let cliState: "idle" | "running" | "requires_action" | undefined;
+  let closeTimer: ReturnType<typeof setTimeout> | null = null;
+  let capTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearTimers = () => {
+    if (closeTimer) clearTimeout(closeTimer);
+    if (capTimer) clearTimeout(capTimer);
+    closeTimer = capTimer = null;
+  };
+  const closeNow = () => { clearTimers(); closeInput(); };
+  const maybeClose = () => {
+    if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+    if (!sawResult || runningTasks.size > 0 || cliState === "running") return;
+    // 任务刚结束时 CLI 可能马上起新一轮（处理 task-notification），给一点宽限。
+    closeTimer = setTimeout(() => {
+      closeTimer = null;
+      if (sawResult && runningTasks.size === 0 && cliState !== "running") closeNow();
+    }, BACKGROUND_GRACE_MS);
+  };
+  abort.signal.addEventListener("abort", closeNow, { once: true });
 
   // 终端以 --dangerously-skip-permissions 启动、或配置/`/mode` 设为 bypassPermissions 时，
   // 不把 bypassPermissions 传给 SDK：该模式下 SDK 自动放行所有工具、不再调用
@@ -106,6 +139,29 @@ export function createQuery(
     },
   });
 
+  const trackBackground = (m: Record<string, unknown>) => {
+    const id = typeof m.task_id === "string" ? m.task_id : undefined;
+    switch (m.subtype) {
+      case "task_started":
+        if (id && !m.skip_transcript) runningTasks.add(id);
+        break;
+      case "task_notification":
+        if (id) runningTasks.delete(id);
+        break;
+      case "task_updated": {
+        const status = (m.patch as { status?: string } | undefined)?.status;
+        if (id && (status === "completed" || status === "failed" || status === "killed")) runningTasks.delete(id);
+        break;
+      }
+      case "session_state_changed":
+        cliState = m.state as typeof cliState;
+        break;
+      default:
+        return;
+    }
+    maybeClose();
+  };
+
   const events: AsyncIterable<RenderEvent> & { sessionId?: string } = {
     sessionId: undefined,
     async *[Symbol.asyncIterator]() {
@@ -141,6 +197,9 @@ export function createQuery(
               }
             }
           }
+          if (msg.type === "system") {
+            trackBackground(msg as unknown as Record<string, unknown>);
+          }
           if (msg.type === "system" && msg.subtype === "init") {
             // 尽早记下会话 id：轮次被中断时（拿不到 result）也能继续 resume。
             if (msg.session_id) events.sessionId = msg.session_id;
@@ -148,6 +207,13 @@ export function createQuery(
             yield { type: "init" as const, model: msg.model };
           }
           if (msg.type === "result") {
+            sawResult = true;
+            // 有后台任务时最多再等这么久，防止任务悬挂导致本轮永不结束。
+            if (runningTasks.size === 0) {
+              closeNow(); // 没有后台任务：与原单轮行为一致，立即放手
+            } else if (!capTimer) {
+              capTimer = setTimeout(closeNow, BACKGROUND_MAX_WAIT_MS);
+            }
             inputTokens = msg.usage?.input_tokens ?? 0;
             outputTokens = msg.usage?.output_tokens ?? 0;
             if (msg.session_id) {
@@ -156,12 +222,15 @@ export function createQuery(
           }
         }
       } catch (err) {
+        closeNow();
         if (aborted) {
           logger.debug("Query iterator threw after abort — expected");
           return;
         }
         throw err;
       }
+
+      closeNow();
 
       // 被中断的轮次没有完成，不发 turn_end，免得调用方当成正常结束。
       if (aborted) return;
