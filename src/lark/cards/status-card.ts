@@ -11,6 +11,8 @@ export interface StatusCardState {
   elapsedMs: number;
   done: boolean;
   cwd?: string;
+  /** 本轮失败（启动超时、恢复失败、执行出错）时的简短原因，卡片标题显示它而不是 Done。 */
+  failure?: string;
 }
 
 export function buildStatusCard(state: StatusCardState): FeishuCardV2 {
@@ -54,8 +56,9 @@ export function buildStatusCard(state: StatusCardState): FeishuCardV2 {
     elements.push({ tag: "markdown", content: "⏳ Processing..." });
   }
 
-  const header = state.done ? "✅ Done" : "🤖 Generating...";
-  const template = state.done ? "green" : "blue";
+  const failed = state.done && !!state.failure;
+  const header = failed ? `⚠️ ${state.failure}` : state.done ? "✅ Done" : "🤖 Generating...";
+  const template = failed ? "orange" : state.done ? "green" : "blue";
 
   const footer = `Tokens: ${state.inputTokens} in / ${state.outputTokens} out · ${(state.elapsedMs / 1000).toFixed(1)}s`;
   elements.push({ tag: "hr" });

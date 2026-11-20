@@ -46,6 +46,21 @@ describe("buildStatusCard", () => {
     expect(md).toBeDefined();
   });
 
+  it("marks a failed turn distinctly rather than as a green Done", () => {
+    const state: StatusCardState = {
+      outputText: "",
+      inputTokens: 0,
+      outputTokens: 0,
+      elapsedMs: 30_000,
+      done: true,
+      failure: "启动超时 30s",
+    };
+    const card = buildStatusCard(state);
+    expect(card.header?.title.content).toBe("⚠️ 启动超时 30s");
+    expect(card.header?.template).toBe("orange");
+    expect(card.header?.title.content).not.toContain("Done");
+  });
+
   it("shows done state", () => {
     const state: StatusCardState = {
       outputText: "Hello world",
