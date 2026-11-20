@@ -68,7 +68,7 @@ export class CommandRouter {
         break;
 
       case "/new":
-        this.sessionManager.newSession(chatId);
+        await this.sessionManager.newSession(chatId);
         await this.larkClient.sendText(chatId, "🆕 New session started");
         break;
 
@@ -151,11 +151,11 @@ export class CommandRouter {
           break;
         }
         if (cmd.args.toLowerCase() === "all") {
-          const count = this.sessionManager.killAll(chatId);
+          const count = await this.sessionManager.killAll(chatId);
           await this.larkClient.sendText(chatId, `🗑 Killed ${count} session(s), new foreground session created`);
           break;
         }
-        const killed = this.sessionManager.killSession(chatId, cmd.args);
+        const killed = await this.sessionManager.killSession(chatId, cmd.args);
         if (killed) {
           await this.larkClient.sendText(chatId, `🗑 Session "${cmd.args}" killed`);
         } else {

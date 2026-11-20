@@ -98,7 +98,7 @@ describe("StateStore", () => {
     expect(session!.model).toBe("claude-sonnet-4-6");
   });
 
-  it("deletes sessions", async () => {
+  it("deletes chats", async () => {
     await store.load();
     store.setSession("chat-1", {
       cwd: "/tmp",
@@ -107,7 +107,7 @@ describe("StateStore", () => {
       permissionMode: "default",
       model: "",
     });
-    store.deleteSession("chat-1");
+    store.deleteChat("chat-1");
     expect(store.getSession("chat-1")).toBeUndefined();
   });
 

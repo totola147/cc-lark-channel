@@ -116,11 +116,16 @@ export class SessionManager {
     this.persistChat(msg.chatId);
   }
 
-  newSession(chatId: string): ClaudeSession {
+  /**
+   * 用一个全新会话替换前台会话。后台会话保持不变并持久化——以前这里调用
+   * stateStore.deleteSession(chatId)（已移除）会删掉整个 chat 记录，重启后后台会话全丢。
+   */
+  async newSession(chatId: string): Promise<ClaudeSession> {
     const chat = this.chats.get(chatId);
-    if (chat) {
-      const fg = chat.sessions.get(chat.foregroundId);
-      if (fg) fg.interrupt();
+    const old = chat?.sessions.get(chat.foregroundId);
+    if (old) {
+      await old.interrupt();
+      chat!.sessions.delete(old.id);
     }
     this.broker.resetSession();
 
@@ -131,7 +136,7 @@ export class SessionManager {
     } else {
       this.chats.set(chatId, { foregroundId: session.id, sessions: new Map([[session.id, session]]) });
     }
-    this.stateStore.deleteSession(chatId);
+    this.persistChat(chatId);
     return session;
   }
 
@@ -165,7 +170,7 @@ export class SessionManager {
     return target;
   }
 
-  killSession(chatId: string, sessionId: string): boolean {
+  async killSession(chatId: string, sessionId: string): Promise<boolean> {
     const chat = this.chats.get(chatId);
     if (!chat) return false;
 
@@ -173,21 +178,19 @@ export class SessionManager {
     if (!target) return false;
     if (target.id === chat.foregroundId) return false;
 
-    target.interrupt();
     chat.sessions.delete(target.id);
+    await target.interrupt();
     this.persistChat(chatId);
     return true;
   }
 
-  killAll(chatId: string): number {
+  async killAll(chatId: string): Promise<number> {
     const chat = this.chats.get(chatId);
     if (!chat) return 0;
-    let count = 0;
-    for (const [, session] of chat.sessions) {
-      session.interrupt();
-      count++;
-    }
+    const victims = [...chat.sessions.values()];
     chat.sessions.clear();
+    await Promise.all(victims.map((session) => session.interrupt()));
+    const count = victims.length;
     const fresh = this.createFreshSession(chatId);
     chat.sessions.set(fresh.id, fresh);
     chat.foregroundId = fresh.id;
@@ -272,14 +275,17 @@ export class SessionManager {
     const chat = this.chats.get(chatId);
     if (!chat) return;
     const sessions: Record<string, SessionRecord> = {};
+    const prev = this.stateStore.getChat(chatId)?.sessions ?? {};
+    const now = new Date().toISOString();
     for (const [id, s] of chat.sessions) {
       sessions[id] = {
         id: s.id,
         providerSessionId: s.providerSessionId,
         name: s.name,
         cwd: s.cwd,
-        createdAt: new Date().toISOString(),
-        lastActiveAt: new Date().toISOString(),
+        // 保留首次创建时间；以前每次持久化都被覆盖成当前时间
+        createdAt: prev[id]?.createdAt ?? now,
+        lastActiveAt: now,
         permissionMode: s.permissionMode as PermissionMode,
         model: s.model,
       };

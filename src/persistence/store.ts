@@ -140,10 +140,6 @@ export class StateStore {
     this.state.chats[chatId]!.sessions[record.id] = record;
   }
 
-  deleteSession(chatId: string): void {
-    delete this.state.chats[chatId];
-  }
-
   // Workspace methods
   getWorkspace(chatId: string): WorkspaceRecord | undefined {
     return this.state.workspaces?.[chatId];

@@ -167,9 +167,37 @@ describe("E2E: Full message flow", () => {
     await new Promise((r) => setTimeout(r, 100));
 
     // Now create new session
-    manager.newSession("chat-1");
+    await manager.newSession("chat-1");
     const session = manager.getSession("chat-1");
     expect(session!.providerSessionId).toBeUndefined();
+  });
+
+  it("/new keeps background sessions and persists them", async () => {
+    const events = async function* () {
+      yield { type: "turn_end" as const, durationMs: 1, inputTokens: 0, outputTokens: 0 };
+    };
+    vi.mocked(createQuery).mockImplementation(() => ({
+      events: Object.assign(events(), { sessionId: "sess-bg" }),
+      interrupt: vi.fn(),
+    }));
+    await manager.handleMessage(mockMsg("hi"));
+    await new Promise((r) => setTimeout(r, 50));
+    const bg = manager.backgroundSession("chat-1", "keeper");
+    expect(bg).not.toBeNull();
+
+    await manager.newSession("chat-1");
+    const list = manager.getSessionList("chat-1");
+    expect(list.some((s) => s.name === "keeper")).toBe(true);
+
+    // 持久化里也还在
+    const rec = stateStore.getChat("chat-1");
+    expect(rec).toBeDefined();
+    expect(Object.values(rec!.sessions).some((s) => s.name === "keeper")).toBe(true);
+    const createdAt = Object.values(rec!.sessions).find((s) => s.name === "keeper")!.createdAt;
+    await new Promise((r) => setTimeout(r, 5));
+    manager.foregroundSession("chat-1", "keeper");
+    const again = Object.values(stateStore.getChat("chat-1")!.sessions).find((s) => s.name === "keeper")!;
+    expect(again.createdAt).toBe(createdAt);
   });
 
   it("permission broker integrates with card actions", async () => {
