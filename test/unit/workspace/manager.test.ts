@@ -77,6 +77,17 @@ describe("WorkspaceManager session binding", () => {
     expect(mgr.isReleased(chatId)).toBe(false);
   });
 
+  it("release with a session id rebinds the group to it", async () => {
+    const res = await mgr.findOrCreateForSession(dir, "sess-5", "owner-1");
+    if (!("record" in res)) throw new Error("unexpected");
+    await mgr.release(res.record.chatId, "sess-5-forked");
+    expect(mgr.getBySessionId("sess-5-forked")?.chatId).toBe(res.record.chatId);
+    // 再次从 fork 后的 id 转移回来时复用原群
+    const again = await mgr.findOrCreateForSession(dir, "sess-5-forked", "owner-1");
+    if (!("record" in again)) throw new Error("unexpected");
+    expect(again.created).toBe(false);
+  });
+
   it("persists the binding across reloads", async () => {
     const res = await mgr.findOrCreateForSession(dir, "sess-5", "owner-1");
     if (!("record" in res)) throw new Error("unexpected");

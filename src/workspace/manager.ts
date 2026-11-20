@@ -134,10 +134,16 @@ export class WorkspaceManager {
     return { record, created: true };
   }
 
-  async release(chatId: string): Promise<WorkspaceRecord | undefined> {
+  /**
+   * Mark a group as released (handed back to the terminal). `sessionId` is the
+   * session the terminal will resume (may differ from the bound one after an
+   * SDK fork); the binding follows it so a later re-transfer reuses this group.
+   */
+  async release(chatId: string, sessionId?: string): Promise<WorkspaceRecord | undefined> {
     const record = this.stateStore.getWorkspace(chatId);
     if (!record) return undefined;
     record.released = true;
+    if (sessionId) record.sessionId = sessionId;
     this.stateStore.setWorkspace(chatId, record);
     await this.stateStore.save();
     this.logger.info({ chatId, sessionId: record.sessionId }, "Workspace released to terminal");

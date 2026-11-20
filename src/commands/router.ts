@@ -35,8 +35,10 @@ export class CommandRouter {
     if (!text.startsWith("/")) return null;
 
     const spaceIdx = text.indexOf(" ");
-    const command = spaceIdx === -1 ? text : text.slice(0, spaceIdx);
+    const raw = spaceIdx === -1 ? text : text.slice(0, spaceIdx);
     const args = spaceIdx === -1 ? "" : text.slice(spaceIdx + 1).trim();
+    // 缩写命令统一归一成全名，后续作用域校验和分发都只认全名
+    const command = COMMAND_ALIASES[raw] ?? raw;
 
     const known = ["/new", "/stop", "/status", "/sessions", "/mode", "/model", "/cd", "/bg", "/fg", "/kill", "/attach", "/update", "/workspace", "/workspaces", "/close", "/handback", "/help"];
     if (!known.includes(command)) return null;
@@ -317,10 +319,14 @@ export class CommandRouter {
         // 否则终端会 resume 到不含飞书对话的旧会话。
         const sessionId = session?.providerSessionId || ws.sessionId;
 
+        // 同时把群绑定的 sessionId 更新为 fork 后的 id：终端下次从这个 id 转移
+        // 回来时才能复用原群，而不是再建一个新群。
         if (session) await session.interrupt();
-        await this.workspaceManager.release(chatId);
+        const wrapperId = ws.sessionId;
+        await this.workspaceManager.release(chatId, sessionId);
 
-        const delivered = this.handback?.pushResume(ws.sessionId, sessionId) ?? false;
+        // wrapper 是用转移时的 id 注册的；fork 后的新 id 只作为要 resume 的目标。
+        const delivered = this.handback?.pushResume(wrapperId, sessionId) ?? false;
         if (delivered) {
           await this.larkClient.sendText(
             chatId,
@@ -371,6 +377,11 @@ export class CommandRouter {
   }
 }
 
+/** 命令缩写 → 全名 */
+const COMMAND_ALIASES: Record<string, string> = {
+  "/hb": "/handback",
+};
+
 const HELP_TEXT = `cc-lark-channel commands:
 
 /new — Start new session
@@ -385,6 +396,7 @@ const HELP_TEXT = `cc-lark-channel commands:
 /workspace <path> [session-id] — Create a workspace group for a project
 /workspaces — List all workspace groups
 /close — Close current workspace group
+/handback (/hb) — Hand the session back to the terminal (workspace group)
 /update — Pull latest code and restart
 /mode <mode> — Set permission mode
 /model <name> — Switch model
