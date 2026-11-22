@@ -17,6 +17,13 @@ describe("buildStatusCard", () => {
     expect(md).toBeDefined();
   });
 
+  it("points to the reply below when the output was moved out of the card", () => {
+    const card = buildStatusCard({ outputText: "", inputTokens: 1, outputTokens: 1, elapsedMs: 10, done: true, replyBelow: true });
+    const texts = card.body.elements.map((e) => (e as { content?: string }).content ?? "");
+    expect(texts).toContain("💬 回复见下方");
+    expect(texts.some((t) => t.includes("Processing"))).toBe(false);
+  });
+
   it("marks a failed turn distinctly rather than as a green Done", () => {
     const state: StatusCardState = {
       outputText: "",

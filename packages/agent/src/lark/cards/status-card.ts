@@ -24,6 +24,8 @@ export interface StatusCardState {
   effort?: string;
   /** Number of tools invoked so far this turn (shown as a liveness signal). */
   toolCount?: number;
+  /** 最终回复已另发到下方：卡片不重复正文，没有过程内容时给一句指引。 */
+  replyBelow?: boolean;
 }
 
 export function buildStatusCard(state: StatusCardState): FeishuCardV2 {
@@ -65,7 +67,7 @@ export function buildStatusCard(state: StatusCardState): FeishuCardV2 {
   }
 
   if (elements.length === 0) {
-    elements.push({ tag: "markdown", content: "⏳ Processing..." });
+    elements.push({ tag: "markdown", content: state.replyBelow ? "💬 回复见下方" : "⏳ Processing..." });
   }
 
   const failed = state.done && !!state.failure;

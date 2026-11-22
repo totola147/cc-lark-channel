@@ -325,6 +325,12 @@ export class ClaudeSession {
       if (isCurrent()) {
         this.currentHandle = null;
         this.state = "idle";
+        // 最终回复会另发到底部时，状态卡片不再重复这段文字，只保留过程中的叙述，
+        // 否则没有工具调用的轮次会出现两条内容完全相同的消息。
+        if (completedNaturally && this.willPostFinalReply()) {
+          this.cardState.outputText = stripSuffix(this.cardState.outputText, this.finalReplyText).trimEnd();
+          this.cardState.replyBelow = true;
+        }
         await this.finalizeCard(failure);
         // Post the final reply only on natural completion. On error/abort the
         // buffer is left as-is (interrupt clears it) so no partial is posted.
@@ -501,6 +507,10 @@ export class ClaudeSession {
     }
   }
 
+  private willPostFinalReply(): boolean {
+    return this.config.render.final_reply_as_message && this.finalReplyText.trim().length > 0;
+  }
+
   private async postFinalReply(): Promise<void> {
     if (!this.config.render.final_reply_as_message) return;
     const reply = this.finalReplyText.trim();
@@ -571,4 +581,9 @@ export function chunkText(text: string, max: number): string[] {
   }
   if (rest) chunks.push(rest);
   return chunks;
+}
+
+/** 去掉 text 末尾的 suffix；不是后缀时原样返回。 */
+function stripSuffix(text: string, suffix: string): string {
+  return suffix && text.endsWith(suffix) ? text.slice(0, text.length - suffix.length) : text;
 }

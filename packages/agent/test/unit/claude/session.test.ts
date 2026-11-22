@@ -326,6 +326,69 @@ describe("ClaudeSession", () => {
     expect(textCalls).not.toContain("Let me check.");
   });
 
+  describe("status card does not repeat the final reply", () => {
+    function lastStatusCardText(): string {
+      const card = vi.mocked(lark.updateCard).mock.calls.at(-1)![1] as { body: { elements: { content?: string }[] } };
+      return card.body.elements.map((e) => e.content ?? "").join("\n");
+    }
+
+    it("without tool calls the card points to the reply instead of duplicating it", async () => {
+      vi.mocked(createQuery).mockReturnValue({
+        events: Object.assign((async function* () {
+          yield { type: "text" as const, text: "The answer is 42." };
+          yield { type: "turn_end" as const, durationMs: 100, inputTokens: 10, outputTokens: 5 };
+        })(), { sessionId: "s1" }),
+        interrupt: vi.fn(),
+      });
+
+      await session.submit("q");
+      await new Promise((r) => setTimeout(r, 200));
+      const text = lastStatusCardText();
+      expect(text).not.toContain("The answer is 42.");
+      expect(text).toContain("回复见下方");
+      const replies = vi.mocked(lark.sendText).mock.calls.filter((c) => c[1] === "The answer is 42.");
+      expect(replies).toHaveLength(1);
+    });
+
+    it("keeps the narration before the last tool call on the card", async () => {
+      vi.mocked(createQuery).mockReturnValue({
+        events: Object.assign((async function* () {
+          yield { type: "text" as const, text: "Let me check." };
+          yield { type: "tool_use" as const, id: "t1", name: "Read", input: {} };
+          yield { type: "tool_result" as const, toolUseId: "t1", isError: false, text: "ok" };
+          yield { type: "text" as const, text: "Done: found it." };
+          yield { type: "turn_end" as const, durationMs: 100, inputTokens: 10, outputTokens: 5 };
+        })(), { sessionId: "s1" }),
+        interrupt: vi.fn(),
+      });
+
+      await session.submit("q");
+      await new Promise((r) => setTimeout(r, 200));
+      const text = lastStatusCardText();
+      expect(text).toContain("Let me check.");
+      expect(text).not.toContain("Done: found it.");
+    });
+
+    it("leaves the card intact when the reply is not posted separately", async () => {
+      const s = new ClaudeSession(
+        "chat-1",
+        { ...mockConfig, render: { ...mockConfig.render, final_reply_as_message: false } },
+        lark, broker, logger, "/tmp", "default", "",
+      );
+      vi.mocked(createQuery).mockReturnValue({
+        events: Object.assign((async function* () {
+          yield { type: "text" as const, text: "The answer is 42." };
+          yield { type: "turn_end" as const, durationMs: 100, inputTokens: 10, outputTokens: 5 };
+        })(), { sessionId: "s1" }),
+        interrupt: vi.fn(),
+      });
+
+      await s.submit("q");
+      await new Promise((r) => setTimeout(r, 200));
+      expect(lastStatusCardText()).toContain("The answer is 42.");
+    });
+  });
+
   it("does not post a final reply when interrupted", async () => {
     const events = async function* () {
       yield { type: "text" as const, text: "partial answer" };
