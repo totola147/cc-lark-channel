@@ -14,6 +14,8 @@ import { createDeferred, type Deferred } from "../util/deferred.js";
  * This bounds process startup only — never generation — so it can stay short.
  */
 const STARTUP_TIMEOUT_MS = 30_000;
+/** 最终回复单片上限（飞书文本消息约 30k 字节，按段落保守切分）。 */
+const REPLY_CHUNK_MAX = 3000;
 
 interface QueuedInput {
   text: string;
@@ -325,16 +327,18 @@ export class ClaudeSession {
       if (isCurrent()) {
         this.currentHandle = null;
         this.state = "idle";
-        // 最终回复会另发到底部时，状态卡片不再重复这段文字，只保留过程中的叙述，
-        // 否则没有工具调用的轮次会出现两条内容完全相同的消息。
-        if (completedNaturally && this.willPostFinalReply()) {
-          this.cardState.outputText = stripSuffix(this.cardState.outputText, this.finalReplyText).trimEnd();
-          this.cardState.replyBelow = true;
+        // 没有工具调用时，状态卡片原地更新成回复卡片，一轮只留一条消息。
+        if (!(completedNaturally && this.toolCount === 0 && (await this.replyInPlace()))) {
+          // 最终回复会另发到底部时，状态卡片不再重复这段文字，只保留过程中的叙述。
+          if (completedNaturally && this.willPostFinalReply()) {
+            this.cardState.outputText = stripSuffix(this.cardState.outputText, this.finalReplyText).trimEnd();
+            this.cardState.replyBelow = true;
+          }
+          await this.finalizeCard(failure);
+          // Post the final reply only on natural completion. On error/abort the
+          // buffer is left as-is (interrupt clears it) so no partial is posted.
+          if (completedNaturally) await this.postFinalReply();
         }
-        await this.finalizeCard(failure);
-        // Post the final reply only on natural completion. On error/abort the
-        // buffer is left as-is (interrupt clears it) so no partial is posted.
-        if (completedNaturally) await this.postFinalReply();
         this.onTurnComplete?.();
         this.dequeueNext();
       }
@@ -486,6 +490,17 @@ export class ClaudeSession {
     if (!this.cardState.done && this.turnStartMs) {
       this.cardState.elapsedMs = Date.now() - this.turnStartMs;
     }
+    await this.settleStatusCard();
+    if (this.statusCardId) {
+      this.cardState.done = true;
+      const card = buildStatusCard(this.cardState);
+      await this.transport.updateCard(this.statusCardId, card).catch(() => {});
+      this.statusCardId = null;
+    }
+  }
+
+  /** 停掉待发的节流刷新；卡片还在创建中时等它落地，拿到 statusCardId。 */
+  private async settleStatusCard(): Promise<void> {
     if (this.cardUpdateTimer) {
       clearTimeout(this.cardUpdateTimer);
       this.cardUpdateTimer = null;
@@ -499,12 +514,30 @@ export class ClaudeSession {
         this.statusCardId = id;
       }
     }
-    if (this.statusCardId) {
-      this.cardState.done = true;
-      const card = buildStatusCard(this.cardState);
-      await this.transport.updateCard(this.statusCardId, card).catch(() => {});
-      this.statusCardId = null;
+  }
+
+  /**
+   * 把状态卡片原地更新成回复卡片（没有工具调用的轮次用）。只处理能放进一张卡片的
+   * 回复；返回 false 时调用方照常 finalize 状态卡片再另发回复。
+   */
+  private async replyInPlace(): Promise<boolean> {
+    if (!this.willPostFinalReply() || this.config.render.final_reply_format === "text") return false;
+    const reply = this.finalReplyText.trim();
+    if (chunkText(reply, REPLY_CHUNK_MAX).length > 1) return false;
+    this.stopHeartbeat();
+    await this.settleStatusCard();
+    if (!this.statusCardId) return false;
+    const card = { ...buildReplyCard(reply, buildStatusLine(this.cardState)), config: { update_multi: true } };
+    try {
+      await this.transport.updateCard(this.statusCardId, card);
+    } catch (err) {
+      // 更新被拒（如 markdown 不兼容）：回退到 finalize + 另发回复，保证回复送达
+      this.logger.warn({ err }, "Failed to turn status card into reply, posting separately");
+      return false;
     }
+    this.statusCardId = null;
+    this.finalReplyText = "";
+    return true;
   }
 
   private willPostFinalReply(): boolean {
@@ -518,7 +551,7 @@ export class ClaudeSession {
     if (!reply) return;
     // Feishu text messages cap around 30k bytes; chunk conservatively on
     // paragraph boundaries to stay well under the limit.
-    const chunks = chunkText(reply, 3000);
+    const chunks = chunkText(reply, REPLY_CHUNK_MAX);
     const asCard = this.config.render.final_reply_format !== "text";
     const statusLine = asCard ? buildStatusLine(this.cardState) : undefined;
     for (const [i, chunk] of chunks.entries()) {

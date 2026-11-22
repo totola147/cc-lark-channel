@@ -255,9 +255,12 @@ describe("ClaudeSession", () => {
       return new ClaudeSession("chat-1", cardConfig, lark, broker, logger, "/home/u/tmp", "default", "", "xhigh");
     }
 
+    // 带一次工具调用：最终回复另发为新卡片（无工具调用时走原地更新，见下方用例）
     function replyEvents() {
       return async function* () {
         yield { type: "init" as const, model: "claude-opus-4-5-20251101" };
+        yield { type: "tool_use" as const, id: "t1", name: "Read", input: {} };
+        yield { type: "tool_result" as const, toolUseId: "t1", isError: false, text: "ok" };
         yield { type: "text" as const, text: "The answer is 42." };
         yield {
           type: "turn_end" as const, durationMs: 100, inputTokens: 24497, outputTokens: 13,
@@ -265,6 +268,53 @@ describe("ClaudeSession", () => {
         };
       };
     }
+
+    function noToolEvents() {
+      return async function* () {
+        yield { type: "text" as const, text: "The answer is 42." };
+        yield { type: "turn_end" as const, durationMs: 100, inputTokens: 10, outputTokens: 5, model: "claude-opus-4-5-20251101" };
+      };
+    }
+
+    type Card = { header?: unknown; body: { elements: { tag: string; content?: string }[] } };
+
+    it("without tool calls turns the status card into the reply instead of posting another", async () => {
+      const s = cardSession();
+      vi.mocked(createQuery).mockReturnValue({
+        events: Object.assign(noToolEvents()(), { sessionId: "s1" }),
+        interrupt: vi.fn(),
+      });
+
+      await s.submit("q");
+      await new Promise((r) => setTimeout(r, 200));
+
+      expect(lark.sendCard).toHaveBeenCalledTimes(1); // 只有状态卡片
+      expect(lark.sendText).not.toHaveBeenCalled();
+      const [id, card] = vi.mocked(lark.updateCard).mock.calls.at(-1)! as [string, Card];
+      expect(id).toBe("card-1");
+      expect(card.header).toBeUndefined();
+      expect(card.body.elements[0]!.content).toBe("The answer is 42.");
+      expect(card.body.elements.at(-1)!.content).toContain("Opus 4.5");
+    });
+
+    it("posts separately when the in-place update is rejected", async () => {
+      const s = cardSession();
+      vi.mocked(lark.updateCard).mockImplementation(async (_id, card) => {
+        if (!(card as Card).header) throw new Error("card rejected");
+      });
+      vi.mocked(createQuery).mockReturnValue({
+        events: Object.assign(noToolEvents()(), { sessionId: "s1" }),
+        interrupt: vi.fn(),
+      });
+
+      await s.submit("q");
+      await new Promise((r) => setTimeout(r, 200));
+
+      const cards = vi.mocked(lark.sendCard).mock.calls.map((c) => c[1] as Card);
+      expect(cards.filter((c) => c.body.elements[0]?.content === "The answer is 42.")).toHaveLength(1);
+      const status = vi.mocked(lark.updateCard).mock.calls.at(-1)![1] as Card;
+      expect(status.body.elements.map((e) => e.content).join("\n")).toContain("回复见下方");
+    });
 
     it("posts the final reply as a card with a status bar", async () => {
       const s = cardSession();
